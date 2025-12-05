@@ -19,6 +19,12 @@
             <artifactId>lanterna</artifactId>
             <version>3.1.1</version>
         </dependency>
+        <!-- JSON processing -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -64,7 +70,37 @@
                 <configuration>
                     <mainClass>pt.DeathNode.tui.Main</mainClass>
                 </configuration>
+                <executions>
+                    <!-- Execution for CLI tool -->
+                    <execution>
+                        <id>cli</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>pt.DeathNode.crypto.DeathNodeCLI</mainClass>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Profile for running CLI -->
+        <profile>
+            <id>cli</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <configuration>
+                            <mainClass>pt.DeathNode.crypto.DeathNodeCLI</mainClass>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

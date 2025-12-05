@@ -1,0 +1,10 @@
+{
+  "format": "DeathNode-Secure-v1",
+  "algorithm": "AES-256-GCM",
+  "signature_algorithm": "SHA256withRSA",
+  "iv": "51I1txWcxqJRMXRy",
+  "encrypted_data": "fcAXkmiqodSkuYtVAbuvKjhC1ernVAz8hhqaCzDlvbGB2gOLdrI96kkUpjorS90GN2tqSRNIF4ncR7McPkJx1sHvtj0+jxxa0HlSCHeVEZZLM8EMBI4UaQbmrVhgpBpUdT1nlBTbc1Me/xuime8E3D0y3pkqLbTZ9LOup+rF9pTPcD6WlBdEmzc8YJTsrKoKSrIpyw1U2f2L3xjPGw4lk4nqAd5tGYzFj/CFlkLmu7+EcFW1TJ85E8vEUMGMp6tV24fCGaP6nceeaFbAv6HyL74+CDGzWr2eXngsbn9l+6MLJTTS78vaUri/rX6s8bTtI5mY+B8QoMILOV5JPTze+SkwxyyzmXcLMULkWZuq5VWz2EuWP/4BUnrd8Gk5AgRfD2CPRagPk/VkKD4wwqHpgayqeAvN",
+  "signature": "RufsNNshIrlv6+s+UpLSs3xpeElm/9Lbjesd1wmaEy9aaj+J9lBhFYfemnpZPi+MIaPsN6QkKbJCNvW2eVpka9RqJpZzq3OHqq81n/5dIXELtkvnZRNLrU2HtZdnHL4Nuk+gjmCmYe+mUnSGeYOssQt6UB/gMMLp0utirZigiqqw6x0LZCVtaDXyYBYLvQPOSPgZ6syL258iGV6x+4/CWZe0qoqo811HL7NYcBEgWpSz/Lc4Na60PVJn2sCwQdRSYjn28TR/sucvCF3pnHMQ/gX3ryRbyPIkr55zUuSPfK6tswPgi+eBkRWGRiAroaPRIlglsVQn9+5QkhQDmjdz4w\u003d\u003d",
+  "signer_id": "shadow_fox",
+  "timestamp": "2025-12-05T14:14:17.547759515Z"
+}

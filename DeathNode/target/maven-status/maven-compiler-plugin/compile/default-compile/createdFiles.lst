@@ -1,3 +1,6 @@
-pt\DeathNode\tui\ChatWindow$MessageBox.class
-pt\DeathNode\tui\Main.class
-pt\DeathNode\tui\ChatWindow.class
+pt/DeathNode/crypto/Report.class
+pt/DeathNode/crypto/CryptoLib.class
+pt/DeathNode/crypto/ReportContent.class
+pt/DeathNode/crypto/KeyManager.class
+pt/DeathNode/crypto/SecureDocument.class
+pt/DeathNode/crypto/DeathNodeCLI.class
