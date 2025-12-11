@@ -80,12 +80,14 @@ public class Main {
 
         // Buttons
         Panel buttonPanel = new Panel(new GridLayout(2));
+        Button registerBtn = new Button("Registar", () ->
+                attemptRegister(usernameBox.getText(), passwordBox.getText(), msgLabel, textGUI, loginWindow)
+        );
         Button loginBtn = new Button("Login", () ->
                 attemptLogin(usernameBox.getText(), passwordBox.getText(), msgLabel, textGUI, loginWindow)
         );
-        Button quitBtn = new Button("Sair", loginWindow::close);
+        buttonPanel.addComponent(registerBtn);
         buttonPanel.addComponent(loginBtn);
-        buttonPanel.addComponent(quitBtn);
 
         mainPanel.addComponent(buttonPanel);
 
@@ -96,8 +98,8 @@ public class Main {
         screen.stopScreen();
     }
 
-    private static void attemptLogin(String username, String password,
-                                     Label msgLabel, WindowBasedTextGUI textGUI, BasicWindow loginWindow) {
+    private static void attemptRegister(String username, String password,
+                                        Label msgLabel, WindowBasedTextGUI textGUI, BasicWindow loginWindow) {
 
         username = username == null ? "" : username.trim();
         password = password == null ? "" : password.trim();
@@ -111,13 +113,9 @@ public class Main {
             // Use the entered username as the pseudonym for DeathNode.
             // Perform Security Challenge A registration against the auth server.
             ensureUserKeys(username);
-            AuthToken token = loadTokenIfPresent(username);
-
-            if (token == null || token.isExpired()) {
-                msgLabel.setText("A registar utilizador no servidor...");
-                token = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
-                saveToken(username, token);
-            }
+            msgLabel.setText("A registar utilizador no servidor...");
+            AuthToken token = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
+            saveToken(username, token);
 
             // Close login
             loginWindow.close();
@@ -134,6 +132,37 @@ public class Main {
         } catch (Exception e) {
             msgLabel.setText("Falha ao registar: " + e.getMessage());
         }
+    }
+
+    private static void attemptLogin(String username, String password,
+                                     Label msgLabel, WindowBasedTextGUI textGUI, BasicWindow loginWindow) {
+
+        username = username == null ? "" : username.trim();
+        password = password == null ? "" : password.trim();
+
+        if (username.isEmpty() || password.isEmpty()) {
+            msgLabel.setText("Preenche os dois campos");
+            return;
+        }
+
+        AuthToken token = loadTokenIfPresent(username);
+        if (token == null) {
+            msgLabel.setText("Utilizador não registado. Usa 'Registar' primeiro.");
+            return;
+        }
+        if (token.isExpired()) {
+            msgLabel.setText("Token expirado. Faz 'Registar' novamente.");
+            return;
+        }
+
+        // Token válido: considera o utilizador autenticado
+        loginWindow.close();
+
+        ChatWindow chat = new ChatWindow();
+        textGUI.addWindow(chat);
+
+        chat.focusInput(textGUI);
+        textGUI.waitForWindowToClose(chat);
     }
 
     private static void ensureUserKeys(String userId) throws Exception {
