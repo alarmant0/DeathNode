@@ -18,6 +18,10 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.PrivateKey;
@@ -27,6 +31,8 @@ import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 public class AuthServerMain {
 
@@ -37,6 +43,8 @@ public class AuthServerMain {
 
     private static final String DB_URL = "jdbc:sqlite:db/deathnode.db";
     private static Connection DB_CONNECTION;
+    private static final ConcurrentHashMap<String, InvitationToken> tokenCache = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Boolean> authorizedUsers = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws Exception {
         int port = 8080;
@@ -98,6 +106,97 @@ public class AuthServerMain {
             }
         });
 
+        server.createContext("/tokens/create", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+
+                try {
+                    String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                    TokenRequest req = GSON.fromJson(body, TokenRequest.class);
+                    
+                    // Verify the requester is a valid user (alice, bob, etc.)
+                    if (!isValidUser(req.getIssuerId())) {
+                        String response = "{\"error\":\"Invalid issuer\"}";
+                        byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
+                        exchange.sendResponseHeaders(403, respBytes.length);
+                        try (OutputStream os = exchange.getResponseBody()) {
+                            os.write(respBytes);
+                        }
+                        return;
+                    }
+                    
+                    // Create and save the invitation token
+                    InvitationToken token = InvitationToken.create(
+                        req.getIssuerId(), 
+                        req.getMaxUses(), 
+                        req.getValidityHours(), 
+                        req.getDescription()
+                    );
+                    
+                    tokenCache.put(token.getTokenId(), token);
+                    saveTokenToDatabase(token);
+                    
+                    String response = GSON.toJson(token);
+                    byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                } catch (Exception e) {
+                    String response = "{\"error\":\"" + e.getMessage() + "\"}";
+                    byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                }
+            }
+        });
+
+        server.createContext("/tokens/validate", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+
+                try {
+                    String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                    TokenValidationRequest req = GSON.fromJson(body, TokenValidationRequest.class);
+                    
+                    InvitationToken token = tokenCache.get(req.getTokenId());
+                    boolean valid = token != null && token.isValid();
+                    
+                    if (valid && req.isConsume()) {
+                        token.useToken();
+                        saveTokenToDatabase(token);
+                    }
+                    
+                    TokenValidationResponse response = new TokenValidationResponse(valid, token);
+                    String responseJson = GSON.toJson(response);
+                    byte[] respBytes = responseJson.getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                } catch (Exception e) {
+                    String response = "{\"error\":\"" + e.getMessage() + "\"}";
+                    byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                }
+            }
+        });
+
         server.createContext("/reports", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
@@ -141,6 +240,122 @@ public class AuthServerMain {
                         ")")) {
             stmt.executeUpdate();
         }
+        
+        // Create invitation tokens table
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "CREATE TABLE IF NOT EXISTS invitation_tokens (" +
+                        "token_id TEXT PRIMARY KEY," +
+                        "issuer_id TEXT NOT NULL," +
+                        "issued_at TEXT NOT NULL," +
+                        "expires_at TEXT NOT NULL," +
+                        "max_uses INTEGER NOT NULL," +
+                        "current_uses INTEGER DEFAULT 0," +
+                        "active BOOLEAN DEFAULT 1," +
+                        "description TEXT" +
+                        ")")) {
+            stmt.executeUpdate();
+        }
+        
+        // Create users table with integrity constraints
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "CREATE TABLE IF NOT EXISTS users (" +
+                        "username TEXT PRIMARY KEY CHECK (length(username) >= 3)," +
+                        "password_hash TEXT NOT NULL CHECK (length(password_hash) >= 8)," +
+                        "created_at TEXT NOT NULL DEFAULT (datetime('now'))," +
+                        "last_login TEXT," +
+                        "active BOOLEAN DEFAULT 1 CHECK (active IN (0,1))" +
+                        ")")) {
+            stmt.executeUpdate();
+        }
+        
+        // Load existing users into cache
+        loadUsersFromDatabase();
+        
+        // Add default users if table is empty
+        if (authorizedUsers.isEmpty()) {
+            addDefaultUsers();
+        }
+    }
+
+    private static void loadTokensFromDatabase() throws SQLException {
+        try (Statement stmt = DB_CONNECTION.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT * FROM invitation_tokens")) {
+            while (rs.next()) {
+                InvitationToken token = new InvitationToken();
+                token.setTokenId(rs.getString("token_id"));
+                token.setIssuerId(rs.getString("issuer_id"));
+                token.setIssuedAt(rs.getString("issued_at"));
+                token.setExpiresAt(rs.getString("expires_at"));
+                token.setMaxUses(rs.getInt("max_uses"));
+                token.setCurrentUses(rs.getInt("current_uses"));
+                token.setActive(rs.getBoolean("active"));
+                token.setDescription(rs.getString("description"));
+                tokenCache.put(token.getTokenId(), token);
+            }
+        }
+    }
+
+    private static void saveTokenToDatabase(InvitationToken token) throws SQLException {
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "INSERT OR REPLACE INTO invitation_tokens " +
+                "(token_id, issuer_id, issued_at, expires_at, max_uses, current_uses, active, description) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+            stmt.setString(1, token.getTokenId());
+            stmt.setString(2, token.getIssuerId());
+            stmt.setString(3, token.getIssuedAt());
+            stmt.setString(4, token.getExpiresAt());
+            stmt.setInt(5, token.getMaxUses());
+            stmt.setInt(6, token.getCurrentUses());
+            stmt.setBoolean(7, token.isActive());
+            stmt.setString(8, token.getDescription());
+            stmt.executeUpdate();
+        }
+    }
+
+    private static void loadUsersFromDatabase() throws SQLException {
+        try (Statement stmt = DB_CONNECTION.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT username FROM users WHERE active = 1")) {
+            while (rs.next()) {
+                String username = rs.getString("username");
+                authorizedUsers.put(username, true);
+            }
+        }
+    }
+
+    private static void addDefaultUsers() throws SQLException {
+        try {
+            // Add alice:alice
+            addUser("alice", "alice");
+            // Add bob:bob
+            addUser("bob", "bob");
+            System.out.println("Added default users: alice, bob");
+        } catch (Exception e) {
+            System.err.println("Error adding default users: " + e.getMessage());
+        }
+    }
+
+    private static void addUser(String username, String password) throws SQLException, NoSuchAlgorithmException {
+        String passwordHash = hashPassword(password);
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "INSERT OR IGNORE INTO users (username, password_hash, created_at) VALUES (?, ?, ?)")) {
+            stmt.setString(1, username);
+            stmt.setString(2, passwordHash);
+            stmt.setString(3, Instant.now().toString());
+            int rows = stmt.executeUpdate();
+            if (rows > 0) {
+                authorizedUsers.put(username, true);
+            }
+        }
+    }
+
+    private static String hashPassword(String password) throws NoSuchAlgorithmException {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        byte[] hash = md.digest(password.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(hash);
+    }
+
+    private static boolean isValidUser(String userId) {
+        return authorizedUsers.containsKey(userId);
     }
 
     private static void ensureServerKeys() throws Exception {

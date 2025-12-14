@@ -10,7 +10,9 @@ import com.googlecode.lanterna.terminal.DefaultTerminalFactory;
 import com.googlecode.lanterna.terminal.Terminal;
 import pt.DeathNode.auth.AuthToken;
 import pt.DeathNode.auth.JoinRequest;
+import pt.DeathNode.auth.TokenValidationResponse;
 import pt.DeathNode.crypto.KeyManager;
+import pt.DeathNode.crypto.TokenManager;
 import pt.DeathNode.tui.ReportWindow;
 
 import javax.crypto.SecretKey;
@@ -23,7 +25,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.KeyPair;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.Base64;
 import java.util.Collections;
 
@@ -32,8 +40,7 @@ public class Main {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final String AUTH_SERVER_HOST = "localhost";
     private static final int AUTH_SERVER_PORT = 8080;
-    private static final String VALID_USER = "admin";
-    private static final String VALID_PASS = "1234";
+    private static final String DB_URL = "jdbc:sqlite:db/deathnode.db";
 
     public static void main(String[] args) throws IOException {
         DefaultTerminalFactory terminalFactory = new DefaultTerminalFactory();
@@ -53,16 +60,28 @@ public class Main {
         registerPanel.setVisible(false);
         mainContentPanel.addComponent(registerPanel);
 
-        Panel switchPanel = new Panel(new GridLayout(2));
+        Panel tokenRegisterPanel = createTokenRegisterPanel(textGUI, authWindow);
+        tokenRegisterPanel.setVisible(false);
+        mainContentPanel.addComponent(tokenRegisterPanel);
+
+        Panel switchPanel = new Panel(new GridLayout(3));
         Button switchToRegister = new Button("Create Account", () -> {
             loginPanel.setVisible(false);
             registerPanel.setVisible(true);
+            tokenRegisterPanel.setVisible(false);
+        });
+        Button switchToTokenRegister = new Button("Register with Token", () -> {
+            loginPanel.setVisible(false);
+            registerPanel.setVisible(false);
+            tokenRegisterPanel.setVisible(true);
         });
         Button switchToLogin = new Button("Back to Login", () -> {
             loginPanel.setVisible(true);
             registerPanel.setVisible(false);
+            tokenRegisterPanel.setVisible(false);
         });
         switchPanel.addComponent(switchToRegister);
+        switchPanel.addComponent(switchToTokenRegister);
         switchPanel.addComponent(switchToLogin);
         mainContentPanel.addComponent(switchPanel);
 
@@ -225,6 +244,12 @@ public class Main {
         }
 
         try {
+            // Authenticate against database
+            if (!authenticateUser(username, password)) {
+                msgLabel.setText("Invalid username or password");
+                return;
+            }
+
             ensureUserKeys(username);
             AuthToken token = loadTokenIfPresent(username);
 
@@ -243,6 +268,35 @@ public class Main {
         } catch (Exception e) {
             msgLabel.setText("Login failed: " + e.getMessage());
         }
+    }
+
+    private static boolean authenticateUser(String username, String password) throws Exception {
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new Exception("SQLite JDBC driver not found", e);
+        }
+
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            String sql = "SELECT password_hash FROM users WHERE username = ? AND active = 1";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, username);
+                ResultSet rs = stmt.executeQuery();
+                
+                if (rs.next()) {
+                    String storedHash = rs.getString("password_hash");
+                    String inputHash = hashPassword(password);
+                    return storedHash.equals(inputHash);
+                }
+                return false;
+            }
+        }
+    }
+
+    private static String hashPassword(String password) throws NoSuchAlgorithmException {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        byte[] hash = md.digest(password.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(hash);
     }
 
     private static void ensureUserKeys(String userId) throws Exception {
@@ -335,5 +389,100 @@ public class Main {
             }
             return buffer.toByteArray();
         }
+    }
+
+    private static Panel createTokenRegisterPanel(WindowBasedTextGUI textGUI, BasicWindow authWindow) {
+        Panel tokenPanel = new Panel();
+        tokenPanel.setLayoutManager(new GridLayout(1));
+        tokenPanel.setLayoutData(GridLayout.createLayoutData(
+                GridLayout.Alignment.FILL,
+                GridLayout.Alignment.CENTER,
+                true,
+                true
+        ));
+
+        Label title = new Label(" Register with Token");
+        title.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        tokenPanel.addComponent(title);
+
+        tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
+
+        Panel userPanel = new Panel(new GridLayout(2));
+        userPanel.addComponent(new Label("Username:"));
+        final TextBox tokenUsernameBox = new TextBox();
+        tokenUsernameBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        userPanel.addComponent(tokenUsernameBox);
+        tokenPanel.addComponent(userPanel);
+
+        tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
+
+        Panel tokenPanelInput = new Panel(new GridLayout(2));
+        tokenPanelInput.addComponent(new Label("Token:"));
+        final TextBox tokenBox = new TextBox();
+        tokenBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        tokenPanelInput.addComponent(tokenBox);
+        tokenPanel.addComponent(tokenPanelInput);
+
+        tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
+
+        Panel buttonPanel = new Panel(new GridLayout(2));
+        Button registerBtn = new Button("Register", () -> {
+            String username = tokenUsernameBox.getText().trim();
+            String tokenId = tokenBox.getText().trim();
+
+            if (username.isEmpty() || tokenId.isEmpty()) {
+                showDialog(textGUI, "Error", "Username and token are required!");
+                return;
+            }
+
+            try {
+                // Validate token with auth server
+                TokenValidationResponse response = TokenManager.validateToken(tokenId, true);
+                if (!response.isValid()) {
+                    showDialog(textGUI, "Error", "Invalid or expired token!");
+                    return;
+                }
+
+                // Generate keys for new user
+                KeyPair userKeys = KeyManager.generateKeyPair();
+                KeyManager.saveKeyPair(userKeys, username);
+
+                // Request auth token from server
+                AuthToken authToken = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
+                saveToken(username, authToken);
+
+                showDialog(textGUI, "Success", "Registration successful! You can now login.");
+                authWindow.close();
+
+            } catch (Exception e) {
+                showDialog(textGUI, "Error", "Registration failed: " + e.getMessage());
+            }
+        });
+
+        Button cancelBtn = new Button("Cancel", () -> {
+            tokenUsernameBox.setText("");
+            tokenBox.setText("");
+        });
+
+        buttonPanel.addComponent(registerBtn);
+        buttonPanel.addComponent(cancelBtn);
+        tokenPanel.addComponent(buttonPanel);
+
+        return tokenPanel;
+    }
+
+    private static void showDialog(WindowBasedTextGUI textGUI, String title, String message) {
+        BasicWindow dialog = new BasicWindow(title);
+        dialog.setHints(Collections.singletonList(Window.Hint.CENTERED));
+
+        Panel panel = new Panel(new LinearLayout(Direction.VERTICAL));
+        panel.addComponent(new Label(message));
+
+        Panel buttonPanel = new Panel(new LinearLayout(Direction.HORIZONTAL));
+        buttonPanel.addComponent(new Button("OK", dialog::close));
+        panel.addComponent(buttonPanel);
+
+        dialog.setComponent(panel);
+        textGUI.addWindowAndWait(dialog);
     }
 }

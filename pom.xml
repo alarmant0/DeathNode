@@ -87,6 +87,15 @@
                             <mainClass>pt.DeathNode.crypto.DeathNodeCLI</mainClass>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>token-manager</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>pt.DeathNode.crypto.TokenManager</mainClass>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
@@ -159,6 +168,22 @@
                                 <argument>--user</argument>
                                 <argument>bob</argument>
                             </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Profile for token management -->
+        <profile>
+            <id>token-manager</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <configuration>
+                            <mainClass>pt.DeathNode.crypto.TokenManager</mainClass>
                         </configuration>
                     </plugin>
                 </plugins>
