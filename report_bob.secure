@@ -1,0 +1,10 @@
+{
+  "format": "DeathNode-Secure-v1",
+  "algorithm": "AES-256-GCM",
+  "signature_algorithm": "SHA256withRSA",
+  "iv": "8beZINEkrGSmHWx5",
+  "encrypted_data": "TsVA4klMYV4ILBBuI1u0VkSTjoJASlXe+RXng+QsxN5peyIvAk/hreQBS68e3AcS39YeszYYpL+MD6zPmJH9Uzc65yc7qYvsnJ6LQLzq8WnCBALsHaG7zwHlJYAvgvn3vV6xrpo8yDPRTlPFb2NO6+XPCsyfZtObfe72CYqhOB29JmicZhcxPU4Ln7Qgci0Va2xKBx55TeeZrT5oqr/VChHCqfeb41g+E9u7G5UG6rjokNWWO1Nut5N9Tdy8COdtMekWBkdL4hhtIkXHWEvuGMsFTUzN9UXpOSoUzgTVrybgmlIIJsK9w/3W7R1KMO6heMYI28agvkyvxTXzpRx5YFnl6q9ux9/KAubSlgDiCzcwEAMPerA/qYaoqllQJSM\u003d",
+  "signature": "KohD1PXXghUml7DmvudRJaEuxIYjafU8J8BtZNhPF+0twZEOGei4izQOUT7CuKrkbKqoX9c3RL+R7fPTIJuYzZ/9kxPFYGOB3Xj2Zq9m3KQB9WqERHxkR32SrvKsWBLqBym5bIuexC3hVWokGjhv3DNrKM7fCjLa0tkXnMlXiiQzTRQdySdNOrdec0kFRXxVgBQQ96ivXTFVX7sTj4vsFJ3oq9HhjPHBqQwuCtMew7RAFCgJIkb6WSHq/m8ndJ3soiFvSX5emc76WJbjidVD4NSz3w99OzOuEWEmndOG5VF9AFbaga+E0sN9Xu8EcWEuzxsUHgSXNAiIyJBjgvJZ4A\u003d\u003d",
+  "signer_id": "bob",
+  "timestamp": "2025-12-14T15:27:41.300199300Z"
+}
