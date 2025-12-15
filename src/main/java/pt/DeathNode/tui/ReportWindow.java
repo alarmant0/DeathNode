@@ -1,6 +1,8 @@
 package pt.DeathNode.tui;
 
+import com.googlecode.lanterna.TerminalPosition;
 import com.googlecode.lanterna.TerminalSize;
+import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.gui2.*;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
@@ -17,10 +19,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.PrivateKey;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReportWindow extends BasicWindow {
     private final String username;
     private final WindowBasedTextGUI textGUI;
+
+    private AtomicBoolean ambientRunning;
+    private Thread ambientThread;
 
     public ReportWindow(String username, WindowBasedTextGUI textGUI) {
         super("DEATH NODE :: REPORT TERMINAL");
@@ -36,6 +42,12 @@ public class ReportWindow extends BasicWindow {
             return true;
         }
         return super.handleInput(key);
+    }
+
+    @Override
+    public void close() {
+        stopAmbient();
+        super.close();
     }
 
     private void initializeUI() {
@@ -72,7 +84,8 @@ public class ReportWindow extends BasicWindow {
         mainPanel.addComponent(messageLabel);
 
         Panel buttons = new Panel(new GridLayout(3));
-        Button submit = new Button("Submit", () -> {
+        final Button[] submitRef = new Button[1];
+        final Button submit = new Button("Submit", () -> {
             String suspect = suspectBox.getText().trim();
             String location = locationBox.getText().trim();
             String description = descriptionBox.getText().trim();
@@ -82,58 +95,216 @@ public class ReportWindow extends BasicWindow {
                 return;
             }
 
-            try {
-                Report report = Report.createNew(username, suspect, description, location);
+            submitRef[0].setEnabled(false);
+            suspectBox.setEnabled(false);
+            locationBox.setEnabled(false);
+            descriptionBox.setEnabled(false);
+            messageLabel.setText("Submitting...");
 
-                SecretKey encKey = KeyManager.loadSymmetricKey(username);
-                PrivateKey signKey = KeyManager.loadPrivateKey(username);
-
-                SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, username);
-
-                String secJson = secDoc.toJson();
-
-                Path outPath = Paths.get("report_" + username + ".secure");
-                Files.writeString(outPath, secJson, StandardCharsets.UTF_8);
-
-                try {
-                    URL url = new URL("http://localhost:8080/reports");
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setDoOutput(true);
-
-                    byte[] body = secJson.getBytes(StandardCharsets.UTF_8);
-                    conn.getOutputStream().write(body);
-
-                    int code = conn.getResponseCode();
-                    if (code / 100 != 2) {
-                        System.err.println("Warning: server /reports responded with status " + code);
+            AtomicBoolean loading = new AtomicBoolean(true);
+            Thread spinnerThread = new Thread(() -> {
+                String[] frames = new String[]{"|", "/", "-", "\\"};
+                int i = 0;
+                while (loading.get()) {
+                    String msg = "Submitting " + frames[i % frames.length];
+                    invokeLater(() -> {
+                        if (loading.get()) {
+                            messageLabel.setText(msg);
+                        }
+                    });
+                    i++;
+                    try {
+                        Thread.sleep(120);
+                    } catch (InterruptedException ignored) {
+                        return;
                     }
+                }
+            }, "deathnode-report-submit-spinner");
+            spinnerThread.setDaemon(true);
+            spinnerThread.start();
+
+            new Thread(() -> {
+                String finalMsg;
+                try {
+                    Report report = Report.createNew(username, suspect, description, location);
+
+                    SecretKey encKey = KeyManager.loadSymmetricKey(username);
+                    PrivateKey signKey = KeyManager.loadPrivateKey(username);
+
+                    SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, username);
+                    String secJson = secDoc.toJson();
+
+                    Path outPath = Paths.get("report_" + username + ".secure");
+                    Files.writeString(outPath, secJson, StandardCharsets.UTF_8);
+
+                    boolean posted = false;
+                    try {
+                        URL url = new URL("http://localhost:8080/reports");
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setConnectTimeout(1500);
+                        conn.setReadTimeout(1500);
+                        conn.setRequestMethod("POST");
+                        conn.setRequestProperty("Content-Type", "application/json");
+                        conn.setDoOutput(true);
+
+                        byte[] body = secJson.getBytes(StandardCharsets.UTF_8);
+                        try (java.io.OutputStream os = conn.getOutputStream()) {
+                            os.write(body);
+                        }
+
+                        int code = conn.getResponseCode();
+                        posted = (code / 100) == 2;
+                        if (!posted) {
+                            System.err.println("Warning: server /reports responded with status " + code);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Warning: failed to POST report to server: " + e.getMessage());
+                    }
+
+                    System.out.println("Protected report written to: " + outPath.toAbsolutePath());
+                    finalMsg = posted
+                            ? "Protected report saved and sent as " + outPath.getFileName()
+                            : "Protected report saved as " + outPath.getFileName() + " (server unreachable)";
                 } catch (Exception e) {
-                    System.err.println("Warning: failed to POST report to server: " + e.getMessage());
+                    finalMsg = "Error protecting report: " + e.getMessage();
+                } finally {
+                    loading.set(false);
+                    spinnerThread.interrupt();
                 }
 
-                System.out.println("Protected report written to: " + outPath.toAbsolutePath());
-                messageLabel.setText("Protected report saved and sent to server as " + outPath.getFileName());
-            } catch (Exception e) {
-                messageLabel.setText("Error protecting report: " + e.getMessage());
-            }
+                String msg = finalMsg;
+                invokeLater(() -> {
+                    messageLabel.setText(msg);
+                    submitRef[0].setEnabled(true);
+                    suspectBox.setEnabled(true);
+                    locationBox.setEnabled(true);
+                    descriptionBox.setEnabled(true);
+                });
+            }, "deathnode-report-submit").start();
         });
+        submitRef[0] = submit;
+        submit.setRenderer(new SolidFocusButtonRenderer());
 
-        Button viewReports = new Button("View Reports", () -> {
+        final Button viewReports = new Button("View Reports", () -> {
             ReportsListWindow listWindow = new ReportsListWindow(username);
             textGUI.addWindowAndWait(listWindow);
         });
+        viewReports.setRenderer(new SolidFocusButtonRenderer());
 
-        Button close = new Button("Back", this::close);
+        final Button close = new Button("Back", this::close);
+        close.setRenderer(new SolidFocusButtonRenderer());
         buttons.addComponent(submit);
         buttons.addComponent(viewReports);
         buttons.addComponent(close);
         mainPanel.addComponent(buttons);
 
+        mainPanel.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+        Label ambientLabel = new Label(" ");
+        ambientLabel.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        mainPanel.addComponent(ambientLabel);
+
         Border border = Borders.doubleLine("REPORT");
         border.setComponent(mainPanel);
         setComponent(border);
         setHints(java.util.Collections.singletonList(Hint.CENTERED));
+
+        startAmbient(ambientLabel);
+    }
+
+    private void invokeLater(Runnable runnable) {
+        if (textGUI == null) {
+            runnable.run();
+            return;
+        }
+        textGUI.getGUIThread().invokeLater(runnable);
+    }
+
+    private void startAmbient(Label target) {
+        stopAmbient();
+        ambientRunning = new AtomicBoolean(true);
+        ambientThread = new Thread(() -> {
+            int tick = 0;
+            while (ambientRunning.get()) {
+                String frame = buildAmbientFrame(tick++);
+                invokeLater(() -> {
+                    if (ambientRunning.get()) {
+                        target.setText(frame);
+                    }
+                });
+                try {
+                    Thread.sleep(150);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "deathnode-ambient-report");
+        ambientThread.setDaemon(true);
+        ambientThread.start();
+    }
+
+    private void stopAmbient() {
+        if (ambientRunning != null) {
+            ambientRunning.set(false);
+        }
+        if (ambientThread != null) {
+            ambientThread.interrupt();
+            ambientThread = null;
+        }
+    }
+
+    private static String buildAmbientFrame(int tick) {
+        String stream = "0123456789abcdef";
+        int width = 52;
+        int offset = tick % stream.length();
+        StringBuilder repeated = new StringBuilder(width + stream.length());
+        while (repeated.length() < width + stream.length()) {
+            repeated.append(stream);
+        }
+        String rep = repeated.toString();
+        String slice = rep.substring(offset, offset + width);
+        String caret = (tick % 2 == 0) ? "|" : " ";
+        return "IDLE " + caret + "  " + slice;
+    }
+
+    private static final class SolidFocusButtonRenderer implements Button.ButtonRenderer {
+        @Override
+        public TerminalPosition getCursorLocation(Button component) {
+            return null;
+        }
+
+        @Override
+        public TerminalSize getPreferredSize(Button component) {
+            String label = component.getLabel() == null ? "" : component.getLabel();
+            return new TerminalSize(Math.max(6, label.length() + 4), 1);
+        }
+
+        @Override
+        public void drawComponent(TextGUIGraphics graphics, Button component) {
+            int width = graphics.getSize().getColumns();
+            if (width <= 0) {
+                return;
+            }
+
+            TextColor focusedBg = TextColor.Factory.fromString("#39ff14");
+            TextColor focusedFg = TextColor.Factory.fromString("#050607");
+            TextColor normalBg = TextColor.Factory.fromString("#101415");
+            TextColor normalFg = TextColor.Factory.fromString("#39ff14");
+
+            graphics.setBackgroundColor(component.isFocused() ? focusedBg : normalBg);
+            graphics.setForegroundColor(component.isFocused() ? focusedFg : normalFg);
+            graphics.fill(' ');
+
+            if (width >= 2) {
+                graphics.putString(0, 0, "<");
+                graphics.putString(width - 1, 0, ">");
+            }
+
+            String label = component.getLabel() == null ? "" : component.getLabel();
+            int start = Math.max(0, (width - label.length()) / 2);
+            if (start + label.length() > width) {
+                label = label.substring(0, Math.max(0, width - start));
+            }
+            graphics.putString(start, 0, label);
+        }
     }
 }

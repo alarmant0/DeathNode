@@ -43,13 +43,16 @@ import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
+import java.util.Arrays;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.Statement;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main {
 
@@ -113,6 +116,32 @@ public class Main {
 
         WindowBasedTextGUI textGUI = new MultiWindowTextGUI(screen);
         textGUI.setTheme(DEATH_THEME);
+
+        MatrixRainComponent matrix = new MatrixRainComponent();
+        BasicWindow backgroundWindow = new BasicWindow() {
+            @Override
+            public boolean handleInput(KeyStroke key) {
+                return false;
+            }
+        };
+        backgroundWindow.setHints(Arrays.asList(Window.Hint.NO_DECORATIONS, Window.Hint.FULL_SCREEN));
+        backgroundWindow.setComponent(matrix);
+        textGUI.addWindow(backgroundWindow);
+
+        AtomicBoolean matrixRunning = new AtomicBoolean(true);
+        Thread matrixThread = new Thread(() -> {
+            while (matrixRunning.get()) {
+                invokeLater(textGUI, matrix::tick);
+                try {
+                    Thread.sleep(70);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "deathnode-matrix-rain");
+        matrixThread.setDaemon(true);
+        matrixThread.start();
+
         BasicWindow authWindow = new BasicWindow("DEATH NODE :: ACCESS TERMINAL") {
             @Override
             public boolean handleInput(KeyStroke key) {
@@ -134,21 +163,17 @@ public class Main {
             }
         };
 
-        Panel registerPanel = createRegisterPanel(textGUI, authWindow, onBackToLogin);
         Panel tokenRegisterPanel = createTokenRegisterPanel(textGUI, authWindow, onBackToLogin);
 
         showLoginRef[0] = () -> {
             loginPanel.setVisible(true);
-            registerPanel.setVisible(false);
             tokenRegisterPanel.setVisible(false);
         };
 
-        registerPanel.setVisible(false);
         tokenRegisterPanel.setVisible(false);
 
         Panel cardPanel = new Panel(new LinearLayout(Direction.VERTICAL));
         cardPanel.addComponent(loginPanel);
-        cardPanel.addComponent(registerPanel);
         cardPanel.addComponent(tokenRegisterPanel);
 
         ActionListBox nav = new ActionListBox(new TerminalSize(22, 8));
@@ -170,15 +195,9 @@ public class Main {
             }
         });
         nav.addItem("LOGIN", onBackToLogin);
-        nav.addItem("TOKEN ACCESS", () -> {
+        nav.addItem("INVITATION TOKEN", () -> {
             loginPanel.setVisible(false);
-            registerPanel.setVisible(false);
             tokenRegisterPanel.setVisible(true);
-        });
-        nav.addItem("CREATE ACCOUNT", () -> {
-            loginPanel.setVisible(false);
-            registerPanel.setVisible(true);
-            tokenRegisterPanel.setVisible(false);
         });
         nav.addItem("QUIT", authWindow::close);
 
@@ -194,12 +213,43 @@ public class Main {
         Panel mainPanel = new Panel(new LinearLayout(Direction.VERTICAL));
         mainPanel.addComponent(contentPanel);
 
+        final Label ambientLabel = new Label(" ");
+        ambientLabel.setLayoutData(LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
+        ambientLabel.setText(buildAmbientFrame(0));
+        mainPanel.addComponent(ambientLabel);
+
         Border border = Borders.doubleLine("DEATH NODE");
         border.setComponent(mainPanel);
         authWindow.setComponent(border);
         authWindow.setHints(Collections.singletonList(Window.Hint.CENTERED));
 
+        AtomicBoolean ambientRunning = new AtomicBoolean(true);
+        Thread ambientThread = new Thread(() -> {
+            int tick = 0;
+            while (ambientRunning.get()) {
+                String frame = buildAmbientFrame(tick++);
+                invokeLater(textGUI, () -> {
+                    if (ambientRunning.get()) {
+                        ambientLabel.setText(frame);
+                    }
+                });
+                try {
+                    Thread.sleep(150);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "deathnode-ambient-auth");
+        ambientThread.setDaemon(true);
+        ambientThread.start();
+
         textGUI.addWindowAndWait(authWindow);
+
+        matrixRunning.set(false);
+        matrixThread.interrupt();
+        backgroundWindow.close();
+        ambientRunning.set(false);
+        ambientThread.interrupt();
         screen.stopScreen();
     }
 
@@ -238,11 +288,13 @@ public class Main {
         loginPanel.addComponent(loginMsgLabel);
 
         loginPanel.addComponent(new EmptySpace(TerminalSize.ONE));
-        Button loginBtn = new Button("Login", () -> {
+        final Button[] loginBtnRef = new Button[1];
+        final Button loginBtn = new Button("Login", () -> {
             String username = loginUsernameBox.getText();
             String password = loginPasswordBox.getText();
-            attemptLogin(username, password, loginMsgLabel, textGUI, authWindow);
+            attemptLogin(username, password, loginMsgLabel, textGUI, authWindow, loginBtnRef[0], loginUsernameBox, loginPasswordBox);
         });
+        loginBtnRef[0] = loginBtn;
         loginBtn.setRenderer(new SolidFocusButtonRenderer());
         loginBtn.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
         loginPanel.addComponent(loginBtn);
@@ -292,129 +344,122 @@ public class Main {
         }
     }
 
-    private static Panel createRegisterPanel(WindowBasedTextGUI textGUI, BasicWindow authWindow, Runnable onBack) {
-        Panel registerPanel = new Panel();
-        registerPanel.setLayoutManager(new GridLayout(1));
-        registerPanel.setLayoutData(GridLayout.createLayoutData(
-                GridLayout.Alignment.FILL,
-                GridLayout.Alignment.CENTER,
-                true,
-                true
-        ));
-
-        Label title = new Label(" Register");
-        title.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        registerPanel.addComponent(title);
-
-        registerPanel.addComponent(new EmptySpace(TerminalSize.ONE));
-        Panel userPanel = new Panel(new GridLayout(2));
-        userPanel.addComponent(new Label("Username:"));
-        final TextBox regUsernameBox = new TextBox();
-        regUsernameBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        userPanel.addComponent(regUsernameBox);
-        registerPanel.addComponent(userPanel);
-
-        registerPanel.addComponent(new EmptySpace(TerminalSize.ONE));
-        Panel emailPanel = new Panel(new GridLayout(2));
-        emailPanel.addComponent(new Label("Email:"));
-        final TextBox emailBox = new TextBox();
-        emailBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        emailPanel.addComponent(emailBox);
-        registerPanel.addComponent(emailPanel);
-
-        registerPanel.addComponent(new EmptySpace(TerminalSize.ONE));
-        Panel passPanel = new Panel(new GridLayout(2));
-        passPanel.addComponent(new Label("Password:"));
-        final TextBox regPasswordBox = new TextBox().setMask('*');
-        regPasswordBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        passPanel.addComponent(regPasswordBox);
-        registerPanel.addComponent(passPanel);
-
-        registerPanel.addComponent(new EmptySpace(TerminalSize.ONE));
-        Panel confirmPassPanel = new Panel(new GridLayout(2));
-        confirmPassPanel.addComponent(new Label("Confirm:"));
-        final TextBox confirmPassBox = new TextBox().setMask('*');
-        confirmPassBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        confirmPassPanel.addComponent(confirmPassBox);
-        registerPanel.addComponent(confirmPassPanel);
-
-        final Label registerMsgLabel = new Label(" ");
-        registerMsgLabel.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        registerPanel.addComponent(registerMsgLabel);
-
-        registerPanel.addComponent(new EmptySpace(TerminalSize.ONE));
-        Panel buttonPanel = new Panel(new GridLayout(2));
-
-        Button registerBtn = new Button("Register", () -> {
-            String username = regUsernameBox.getText();
-            String email = emailBox.getText();
-            String password = regPasswordBox.getText();
-            String confirmPassword = confirmPassBox.getText();
-
-            if (username.isEmpty() || email.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) {
-                registerMsgLabel.setText("All fields are required!");
-                return;
-            }
-
-            if (!password.equals(confirmPassword)) {
-                registerMsgLabel.setText("Passwords do not match!");
-                return;
-            }
-
-            try {
-                registerUser(username.trim(), password, email);
-                registerMsgLabel.setText("Account created. Go to LOGIN.");
-                regUsernameBox.setText("");
-                emailBox.setText("");
-                regPasswordBox.setText("");
-                confirmPassBox.setText("");
-            } catch (Exception e) {
-                registerMsgLabel.setText("Registration failed: " + e.getMessage());
-            }
-        });
-
-        Button backBtn = new Button("Back", onBack);
-        buttonPanel.addComponent(registerBtn);
-        buttonPanel.addComponent(backBtn);
-        registerPanel.addComponent(buttonPanel);
-
-        return registerPanel;
-    }
-
     private static void attemptLogin(String username, String password,
-                                     Label msgLabel, WindowBasedTextGUI textGUI, BasicWindow loginWindow) {
+                                     Label msgLabel, WindowBasedTextGUI textGUI, BasicWindow loginWindow,
+                                     Button loginBtn, TextBox usernameBox, TextBox passwordBox) {
         username = username == null ? "" : username.trim();
         password = password == null ? "" : password.trim();
+
+        final String finalPassword = password;
 
         if (username.isEmpty() || password.isEmpty()) {
             msgLabel.setText("Please enter both username and password");
             return;
         }
 
-        try {
-            if (!authenticateUser(username, password)) {
-                msgLabel.setText("Invalid username or password");
+        final String userId = username;
+        if (loginBtn != null) {
+            loginBtn.setEnabled(false);
+        }
+        if (usernameBox != null) {
+            usernameBox.setEnabled(false);
+        }
+        if (passwordBox != null) {
+            passwordBox.setEnabled(false);
+        }
+
+        AtomicBoolean loading = new AtomicBoolean(true);
+        Thread spinnerThread = new Thread(() -> {
+            String[] frames = new String[]{"|", "/", "-", "\\"};
+            int i = 0;
+            while (loading.get()) {
+                String msg = "Authenticating " + frames[i % frames.length];
+                invokeLater(textGUI, () -> {
+                    if (msgLabel != null && loading.get()) {
+                        msgLabel.setText(msg);
+                    }
+                });
+                i++;
+                try {
+                    Thread.sleep(120);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "deathnode-login-spinner");
+        spinnerThread.setDaemon(true);
+        spinnerThread.start();
+
+        new Thread(() -> {
+            String error = null;
+            boolean ok = false;
+            try {
+                if (!authenticateUser(userId, finalPassword)) {
+                    error = "Invalid username or password";
+                    return;
+                }
+
+                ensureUserKeys(userId);
+                AuthToken token = loadTokenIfPresent(userId);
+
+                if (token == null || token.isExpired()) {
+                    invokeLater(textGUI, () -> {
+                        if (msgLabel != null) {
+                            msgLabel.setText("Registering user on server...");
+                        }
+                    });
+                    token = requestTokenFromServer(userId, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
+                    saveToken(userId, token);
+                }
+                ok = true;
+            } catch (Exception e) {
+                error = "Login failed: " + e.getMessage();
+            } finally {
+                loading.set(false);
+                spinnerThread.interrupt();
+                String finalError = error;
+                boolean finalOk = ok;
+                invokeLater(textGUI, () -> {
+                    if (loginBtn != null) {
+                        loginBtn.setEnabled(true);
+                    }
+                    if (usernameBox != null) {
+                        usernameBox.setEnabled(true);
+                    }
+                    if (passwordBox != null) {
+                        passwordBox.setEnabled(true);
+                    }
+                    if (!finalOk && msgLabel != null) {
+                        msgLabel.setText(finalError == null ? "Login failed" : finalError);
+                    }
+                });
+            }
+
+            if (!ok) {
                 return;
             }
 
-            ensureUserKeys(username);
-            AuthToken token = loadTokenIfPresent(username);
+            CountDownLatch createdLatch = new CountDownLatch(1);
+            final ReportWindow[] reportWindowRef = new ReportWindow[1];
+            invokeLater(textGUI, () -> {
+                ReportWindow reportWindow = new ReportWindow(userId, textGUI);
+                reportWindowRef[0] = reportWindow;
+                textGUI.addWindow(reportWindow);
+                createdLatch.countDown();
+            });
 
-            if (token == null || token.isExpired()) {
-                msgLabel.setText("Registering user on server...");
-                token = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
-                saveToken(username, token);
+            try {
+                createdLatch.await();
+            } catch (InterruptedException ignored) {
+                return;
             }
 
-            loginWindow.close();
+            if (reportWindowRef[0] != null) {
+                textGUI.waitForWindowToClose(reportWindowRef[0]);
+            }
 
-            ReportWindow reportWindow = new ReportWindow(username, textGUI);
-            textGUI.addWindow(reportWindow);
-            textGUI.waitForWindowToClose(reportWindow);
-
-        } catch (Exception e) {
-            msgLabel.setText("Login failed: " + e.getMessage());
-        }
+            invokeLater(textGUI, loginWindow::close);
+        }, "deathnode-login").start();
     }
 
     private static boolean authenticateUser(String username, String password) throws Exception {
@@ -446,43 +491,43 @@ public class Main {
         return Base64.getEncoder().encodeToString(hash);
     }
 
-     private static void registerUser(String username, String password, String email) throws Exception {
-         if (username == null || username.trim().isEmpty()) {
-             throw new IllegalArgumentException("Username is required");
-         }
-         if (password == null || password.isEmpty()) {
-             throw new IllegalArgumentException("Password is required");
-         }
-         if (username.length() < 3) {
-             throw new IllegalArgumentException("Username must be at least 3 characters");
-         }
+    private static void createLocalUser(String username, String password) throws Exception {
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalArgumentException("Username is required");
+        }
+        if (password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("Password is required");
+        }
+        if (username.trim().length() < 3) {
+            throw new IllegalArgumentException("Username must be at least 3 characters");
+        }
 
-         try {
-             Class.forName("org.sqlite.JDBC");
-         } catch (ClassNotFoundException e) {
-             throw new Exception("SQLite JDBC driver not found", e);
-         }
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new Exception("SQLite JDBC driver not found", e);
+        }
 
-         String passwordHash = hashPassword(password);
-         try (Connection conn = DriverManager.getConnection(DB_URL)) {
-             try (Statement stmt = conn.createStatement()) {
-                 stmt.execute("CREATE TABLE IF NOT EXISTS users (" +
-                         "username TEXT PRIMARY KEY CHECK (length(username) >= 3)," +
-                         "password_hash TEXT NOT NULL CHECK (length(password_hash) >= 8)," +
-                         "created_at TEXT NOT NULL DEFAULT (datetime('now'))," +
-                         "last_login TEXT," +
-                         "active BOOLEAN DEFAULT 1 CHECK (active IN (0,1))" +
-                         ")");
-             }
+        String passwordHash = hashPassword(password);
+        try (Connection conn = DriverManager.getConnection(DB_URL)) {
+            try (java.sql.Statement stmt = conn.createStatement()) {
+                stmt.execute("CREATE TABLE IF NOT EXISTS users (" +
+                        "username TEXT PRIMARY KEY CHECK (length(username) >= 3)," +
+                        "password_hash TEXT NOT NULL CHECK (length(password_hash) >= 8)," +
+                        "created_at TEXT NOT NULL DEFAULT (datetime('now'))," +
+                        "last_login TEXT," +
+                        "active BOOLEAN DEFAULT 1 CHECK (active IN (0,1))" +
+                        ")");
+            }
 
-             String sql = "INSERT INTO users (username, password_hash, active) VALUES (?, ?, 1)";
-             try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                 ps.setString(1, username);
-                 ps.setString(2, passwordHash);
-                 ps.executeUpdate();
-             }
-         }
-     }
+            String sql = "INSERT INTO users (username, password_hash, active) VALUES (?, ?, 1)";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, username.trim());
+                ps.setString(2, passwordHash);
+                ps.executeUpdate();
+            }
+        }
+    }
 
     private static void ensureUserKeys(String userId) throws Exception {
         Path keysDir = Paths.get("keys");
@@ -586,9 +631,13 @@ public class Main {
                 true
         ));
 
-        Label title = new Label(" Register with Token");
+        Label title = new Label(" INVITATION TOKEN ");
         title.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
         tokenPanel.addComponent(title);
+
+        Label hint = new Label("Invite-only. Use a token generated by Alice/Bob.");
+        hint.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        tokenPanel.addComponent(hint);
 
         tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
 
@@ -601,6 +650,24 @@ public class Main {
 
         tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
 
+        Panel passPanel = new Panel(new GridLayout(2));
+        passPanel.addComponent(new Label("Password:"));
+        final TextBox passwordBox = new TextBox().setMask('*');
+        passwordBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        passPanel.addComponent(passwordBox);
+        tokenPanel.addComponent(passPanel);
+
+        tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
+
+        Panel confirmPanel = new Panel(new GridLayout(2));
+        confirmPanel.addComponent(new Label("Confirm:"));
+        final TextBox confirmBox = new TextBox().setMask('*');
+        confirmBox.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        confirmPanel.addComponent(confirmBox);
+        tokenPanel.addComponent(confirmPanel);
+
+        tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
+
         Panel tokenPanelInput = new Panel(new GridLayout(2));
         tokenPanelInput.addComponent(new Label("Token:"));
         final TextBox tokenBox = new TextBox();
@@ -608,45 +675,122 @@ public class Main {
         tokenPanelInput.addComponent(tokenBox);
         tokenPanel.addComponent(tokenPanelInput);
 
+        final Label statusLabel = new Label(" ");
+        statusLabel.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
+        tokenPanel.addComponent(statusLabel);
+
         tokenPanel.addComponent(new EmptySpace(TerminalSize.ONE));
 
         Panel buttonPanel = new Panel(new GridLayout(3));
-        Button registerBtn = new Button("Register", () -> {
+        final Button[] registerBtnRef = new Button[1];
+        final Button registerBtn = new Button("Register", () -> {
             String username = tokenUsernameBox.getText().trim();
             String tokenId = tokenBox.getText().trim();
+            String password = passwordBox.getText();
+            String confirm = confirmBox.getText();
 
-            if (username.isEmpty() || tokenId.isEmpty()) {
-                showDialog(textGUI, "Error", "Username and token are required!");
+            if (username.isEmpty() || tokenId.isEmpty() || password.isEmpty() || confirm.isEmpty()) {
+                showDialog(textGUI, "Error", "Username, password, and token are required!");
                 return;
             }
 
-            try {
-                TokenValidationResponse response = TokenManager.validateToken(tokenId, true);
-                if (!response.isValid()) {
-                    showDialog(textGUI, "Error", "Invalid or expired token!");
-                    return;
+            if (!password.equals(confirm)) {
+                showDialog(textGUI, "Error", "Passwords do not match!");
+                return;
+            }
+
+            registerBtnRef[0].setEnabled(false);
+            tokenUsernameBox.setEnabled(false);
+            tokenBox.setEnabled(false);
+            passwordBox.setEnabled(false);
+            confirmBox.setEnabled(false);
+            statusLabel.setText("Validating token...");
+
+            AtomicBoolean loading = new AtomicBoolean(true);
+            Thread spinnerThread = new Thread(() -> {
+                String[] frames = new String[]{"|", "/", "-", "\\"};
+                int i = 0;
+                while (loading.get()) {
+                    String msg = "Enrolling " + frames[i % frames.length];
+                    invokeLater(textGUI, () -> {
+                        if (loading.get()) {
+                            statusLabel.setText(msg);
+                        }
+                    });
+                    i++;
+                    try {
+                        Thread.sleep(120);
+                    } catch (InterruptedException ignored) {
+                        return;
+                    }
+                }
+            }, "deathnode-token-spinner");
+            spinnerThread.setDaemon(true);
+            spinnerThread.start();
+
+            new Thread(() -> {
+                String error = null;
+                boolean ok = false;
+                try {
+                    TokenValidationResponse response = TokenManager.validateToken(tokenId, true);
+                    if (!response.isValid()) {
+                        error = "Invalid or expired token!";
+                        return;
+                    }
+
+                    createLocalUser(username, password);
+                    ensureUserKeys(username);
+
+                    AuthToken authToken = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
+                    saveToken(username, authToken);
+
+                    ok = true;
+                } catch (Exception e) {
+                    error = "Registration failed: " + e.getMessage();
+                } finally {
+                    loading.set(false);
+                    spinnerThread.interrupt();
                 }
 
-                KeyPair userKeys = KeyManager.generateKeyPair();
-                KeyManager.saveKeyPair(userKeys, username);
+                String finalError = error;
+                boolean finalOk = ok;
+                invokeLater(textGUI, () -> {
+                    registerBtnRef[0].setEnabled(true);
+                    tokenUsernameBox.setEnabled(true);
+                    tokenBox.setEnabled(true);
+                    passwordBox.setEnabled(true);
+                    confirmBox.setEnabled(true);
 
-                AuthToken authToken = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
-                saveToken(username, authToken);
+                    statusLabel.setText(" ");
 
-                showDialog(textGUI, "Success", "Registration successful! You can now login.");
-                authWindow.close();
+                    if (!finalOk) {
+                        showDialog(textGUI, "Error", finalError == null ? "Registration failed" : finalError);
+                        return;
+                    }
 
-            } catch (Exception e) {
-                showDialog(textGUI, "Error", "Registration failed: " + e.getMessage());
-            }
+                    showDialog(textGUI, "Success", "Enrollment complete. Return to LOGIN.");
+                    tokenUsernameBox.setText("");
+                    tokenBox.setText("");
+                    passwordBox.setText("");
+                    confirmBox.setText("");
+                    onBack.run();
+                });
+            }, "deathnode-token-enroll").start();
         });
+        registerBtnRef[0] = registerBtn;
+        registerBtn.setRenderer(new SolidFocusButtonRenderer());
 
-        Button cancelBtn = new Button("Cancel", () -> {
+        final Button cancelBtn = new Button("Cancel", () -> {
             tokenUsernameBox.setText("");
             tokenBox.setText("");
+            passwordBox.setText("");
+            confirmBox.setText("");
+            statusLabel.setText(" ");
         });
+        cancelBtn.setRenderer(new SolidFocusButtonRenderer());
 
-        Button backBtn = new Button("Back", onBack);
+        final Button backBtn = new Button("Back", onBack);
+        backBtn.setRenderer(new SolidFocusButtonRenderer());
 
         buttonPanel.addComponent(registerBtn);
         buttonPanel.addComponent(cancelBtn);
@@ -664,10 +808,184 @@ public class Main {
         panel.addComponent(new Label(message));
 
         Panel buttonPanel = new Panel(new LinearLayout(Direction.HORIZONTAL));
-        buttonPanel.addComponent(new Button("OK", dialog::close));
+        Button okBtn = new Button("OK", dialog::close);
+        okBtn.setRenderer(new SolidFocusButtonRenderer());
+        buttonPanel.addComponent(okBtn);
         panel.addComponent(buttonPanel);
 
+        final Label ambientLabel = new Label(" ");
+        ambientLabel.setLayoutData(LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
+        ambientLabel.setText(buildAmbientFrame(0));
+        panel.addComponent(ambientLabel);
+
         dialog.setComponent(panel);
+
+        AtomicBoolean ambientRunning = new AtomicBoolean(true);
+        Thread ambientThread = new Thread(() -> {
+            int tick = 0;
+            while (ambientRunning.get()) {
+                String frame = buildAmbientFrame(tick++);
+                invokeLater(textGUI, () -> {
+                    if (ambientRunning.get()) {
+                        ambientLabel.setText(frame);
+                    }
+                });
+                try {
+                    Thread.sleep(150);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "deathnode-ambient-dialog");
+        ambientThread.setDaemon(true);
+        ambientThread.start();
+
         textGUI.addWindowAndWait(dialog);
+        ambientRunning.set(false);
+        ambientThread.interrupt();
+    }
+
+    private static String buildAmbientFrame(int tick) {
+        String stream = "0123456789abcdef";
+        int width = 52;
+        int offset = tick % stream.length();
+        StringBuilder repeated = new StringBuilder(width + stream.length());
+        while (repeated.length() < width + stream.length()) {
+            repeated.append(stream);
+        }
+        String rep = repeated.toString();
+        String slice = rep.substring(offset, offset + width);
+        String caret = (tick % 2 == 0) ? "|" : " ";
+        return "IDLE " + caret + "  " + slice;
+    }
+
+    private static void invokeLater(WindowBasedTextGUI textGUI, Runnable runnable) {
+        if (textGUI == null) {
+            runnable.run();
+            return;
+        }
+        textGUI.getGUIThread().invokeLater(runnable);
+    }
+
+    private static final class MatrixRainComponent extends AbstractComponent<MatrixRainComponent> {
+        private static final TextColor BG = TextColor.Factory.fromString("#050607");
+        private static final TextColor HEAD = TextColor.Factory.fromString("#d7ffd7");
+        private static final TextColor TRAIL_1 = TextColor.Factory.fromString("#39ff14");
+        private static final TextColor TRAIL_2 = TextColor.Factory.fromString("#1f7a1a");
+        private static final TextColor TRAIL_3 = TextColor.Factory.fromString("#0f3510");
+
+        private final Random rnd = new Random();
+        private TerminalSize lastSize;
+        private int[] headY;
+        private int[] speed;
+        private int[] trail;
+        private int tick;
+
+        void tick() {
+            if (lastSize == null) {
+                invalidate();
+                return;
+            }
+            ensureColumns(lastSize.getColumns(), lastSize.getRows());
+            tick++;
+            int rows = lastSize.getRows();
+            for (int x = 0; x < headY.length; x++) {
+                headY[x] += speed[x];
+                if (headY[x] > rows + trail[x] + 2) {
+                    resetColumn(x, rows);
+                }
+            }
+            invalidate();
+        }
+
+        private void ensureColumns(int cols, int rows) {
+            if (cols <= 0 || rows <= 0) {
+                return;
+            }
+            if (headY != null && headY.length == cols) {
+                return;
+            }
+            headY = new int[cols];
+            speed = new int[cols];
+            trail = new int[cols];
+            for (int i = 0; i < cols; i++) {
+                resetColumn(i, rows);
+            }
+        }
+
+        private void resetColumn(int x, int rows) {
+            headY[x] = -rnd.nextInt(Math.max(1, rows));
+            speed[x] = 1 + rnd.nextInt(3);
+            trail[x] = 6 + rnd.nextInt(18);
+        }
+
+        private char randChar() {
+            int r = rnd.nextInt(10);
+            if (r < 6) {
+                return (char) ('0' + rnd.nextInt(10));
+            }
+            return (char) ('a' + rnd.nextInt(26));
+        }
+
+        @Override
+        protected ComponentRenderer<MatrixRainComponent> createDefaultRenderer() {
+            return new ComponentRenderer<MatrixRainComponent>() {
+                @Override
+                public TerminalSize getPreferredSize(MatrixRainComponent component) {
+                    return TerminalSize.ZERO;
+                }
+
+                @Override
+                public void drawComponent(TextGUIGraphics g, MatrixRainComponent c) {
+                    TerminalSize size = g.getSize();
+                    c.lastSize = size;
+                    c.ensureColumns(size.getColumns(), size.getRows());
+
+                    g.setBackgroundColor(BG);
+                    g.setForegroundColor(TRAIL_1);
+                    g.fill(' ');
+
+                    int cols = size.getColumns();
+                    int rows = size.getRows();
+                    if (c.headY == null) {
+                        return;
+                    }
+
+                    for (int x = 0; x < cols; x++) {
+                        int yHead = c.headY[x];
+                        for (int t = 0; t <= c.trail[x]; t++) {
+                            int y = yHead - t;
+                            if (y < 0 || y >= rows) {
+                                continue;
+                            }
+                            if (t == 0) {
+                                g.setForegroundColor(HEAD);
+                            } else if (t < 4) {
+                                g.setForegroundColor(TRAIL_1);
+                            } else if (t < 10) {
+                                g.setForegroundColor(TRAIL_2);
+                            } else {
+                                g.setForegroundColor(TRAIL_3);
+                            }
+                            g.putString(x, y, String.valueOf(c.randChar()));
+                        }
+                    }
+
+                    if ((c.tick % 40) < 12) {
+                        String base = "DEATH NOTE";
+                        int startX = Math.max(0, (cols - base.length()) / 2);
+                        int y = Math.max(0, rows / 2 - 10);
+                        StringBuilder glitch = new StringBuilder(base);
+                        int glitches = 1 + c.rnd.nextInt(3);
+                        for (int i = 0; i < glitches; i++) {
+                            int idx = c.rnd.nextInt(glitch.length());
+                            glitch.setCharAt(idx, c.randChar());
+                        }
+                        g.setForegroundColor(TRAIL_1);
+                        g.putString(startX, y, glitch.toString());
+                    }
+                }
+            };
+        }
     }
 }
