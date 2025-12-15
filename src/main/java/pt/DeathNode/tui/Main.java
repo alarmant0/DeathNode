@@ -24,13 +24,18 @@ import pt.DeathNode.crypto.TokenManager;
 import pt.DeathNode.tui.ReportWindow;
 
 import javax.crypto.SecretKey;
+import javax.imageio.ImageIO;
+import javax.swing.WindowConstants;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.RenderingHints;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -62,20 +67,66 @@ public class Main {
     private static final String DB_URL = "jdbc:sqlite:db/deathnode.db";
     private static final SimpleTheme DEATH_THEME = buildTheme();
 
+    private static Image loadAppIconOrFallback() {
+        try {
+            File f = new File("img/icon/ryuk.png");
+            if (f.isFile()) {
+                BufferedImage img = ImageIO.read(f);
+                if (img != null) {
+                    return img;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return buildAppIcon();
+    }
+
     private static Image buildAppIcon() {
         int size = 32;
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new Color(5, 6, 7));
+
+        Color bg = new Color(5, 6, 7);
+        Color accent = new Color(57, 255, 20);
+        Color cover = new Color(10, 11, 12);
+        Color paper = new Color(230, 230, 230);
+
+        g.setColor(bg);
         g.fillRect(0, 0, size, size);
-        g.setColor(new Color(57, 255, 20));
-        g.setFont(new Font(Font.MONOSPACED, Font.BOLD, 18));
+
+        int pad = 6;
+        int bookX = pad;
+        int bookY = pad;
+        int bookW = size - pad * 2;
+        int bookH = size - pad * 2;
+
+        g.setColor(cover);
+        g.fillRoundRect(bookX, bookY, bookW, bookH, 5, 5);
+
+        g.setColor(accent);
+        g.drawRoundRect(bookX, bookY, bookW, bookH, 5, 5);
+        g.drawLine(bookX + 4, bookY + 2, bookX + 4, bookY + bookH - 2);
+
+        g.setColor(paper);
+        g.setFont(new Font(Font.SERIF, Font.BOLD, 8));
         FontMetrics fm = g.getFontMetrics();
-        String text = "T27";
-        int x = (size - fm.stringWidth(text)) / 2;
-        int y = (size - fm.getHeight()) / 2 + fm.getAscent();
-        g.drawString(text, x, y);
+        String line1 = "DEATH";
+        String line2 = "NOTE";
+        int cx = bookX + (bookW - Math.max(fm.stringWidth(line1), fm.stringWidth(line2))) / 2 + 2;
+        int cy = bookY + 10;
+        g.drawString(line1, cx, cy);
+        g.drawString(line2, cx + 3, cy + fm.getHeight());
+
+        int skullX = bookX + 7;
+        int skullY = bookY + 6;
+        g.setColor(paper);
+        g.fillOval(skullX, skullY, 8, 7);
+        g.setColor(bg);
+        g.fillOval(skullX + 2, skullY + 2, 2, 2);
+        g.fillOval(skullX + 5, skullY + 2, 2, 2);
+        g.fillRect(skullX + 4, skullY + 4, 1, 2);
+
         g.dispose();
         return img;
     }
@@ -99,12 +150,12 @@ public class Main {
         DefaultTerminalFactory terminalFactory = new DefaultTerminalFactory()
                 .setPreferTerminalEmulator(true)
                 .setTerminalEmulatorTitle("T27 :: DEATHNODE")
-                .setInitialTerminalSize(new TerminalSize(100, 30))
+                .setInitialTerminalSize(new TerminalSize(120, 36))
                 .setMouseCaptureMode(MouseCaptureMode.CLICK_RELEASE_DRAG_MOVE);
 
         SwingTerminalFrame terminalFrame = terminalFactory.createSwingTerminal();
         terminalFrame.setTitle("T27 :: DEATHNODE");
-        terminalFrame.setIconImage(buildAppIcon());
+        terminalFrame.setIconImage(loadAppIconOrFallback());
         terminalFrame.setResizable(false);
         terminalFrame.pack();
         terminalFrame.setLocationRelativeTo(null);
@@ -133,7 +184,7 @@ public class Main {
             while (matrixRunning.get()) {
                 invokeLater(textGUI, matrix::tick);
                 try {
-                    Thread.sleep(70);
+                    Thread.sleep(130);
                 } catch (InterruptedException ignored) {
                     return;
                 }
@@ -152,6 +203,61 @@ public class Main {
                 return super.handleInput(key);
             }
         };
+
+        AtomicBoolean shuttingDown = new AtomicBoolean(false);
+        Runnable cleanup = () -> {
+            if (!shuttingDown.compareAndSet(false, true)) {
+                return;
+            }
+            try {
+                try {
+                    matrixRunning.set(false);
+                } catch (Exception ignored) {
+                }
+                try {
+                    matrixThread.interrupt();
+                } catch (Exception ignored) {
+                }
+
+                try {
+                    backgroundWindow.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    authWindow.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    screen.stopScreen();
+                } catch (Exception ignored) {
+                }
+            } finally {
+                try {
+                    terminalFrame.dispose();
+                } catch (Exception ignored) {
+                }
+            }
+        };
+
+        terminalFrame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        terminalFrame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                new Thread(cleanup, "deathnode-shutdown").start();
+            }
+
+            @Override
+            public void windowClosed(WindowEvent e) {
+                new Thread(cleanup, "deathnode-shutdown").start();
+            }
+        });
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                cleanup.run();
+            } catch (Exception ignored) {
+            }
+        }, "deathnode-shutdown-hook"));
 
         Panel loginPanel = createLoginPanel(textGUI, authWindow);
 
@@ -213,44 +319,22 @@ public class Main {
         Panel mainPanel = new Panel(new LinearLayout(Direction.VERTICAL));
         mainPanel.addComponent(contentPanel);
 
-        final Label ambientLabel = new Label(" ");
-        ambientLabel.setLayoutData(LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
-        ambientLabel.setText(buildAmbientFrame(0));
-        mainPanel.addComponent(ambientLabel);
+        final Label statusHintLabel = new Label("Keys: TAB switch | ENTER activate | ESC quit");
+        statusHintLabel.setLayoutData(LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
+        mainPanel.addComponent(statusHintLabel);
 
-        Border border = Borders.doubleLine("DEATH NODE");
+        Border border = Borders.doubleLine();
         border.setComponent(mainPanel);
         authWindow.setComponent(border);
         authWindow.setHints(Collections.singletonList(Window.Hint.CENTERED));
-
-        AtomicBoolean ambientRunning = new AtomicBoolean(true);
-        Thread ambientThread = new Thread(() -> {
-            int tick = 0;
-            while (ambientRunning.get()) {
-                String frame = buildAmbientFrame(tick++);
-                invokeLater(textGUI, () -> {
-                    if (ambientRunning.get()) {
-                        ambientLabel.setText(frame);
-                    }
-                });
-                try {
-                    Thread.sleep(150);
-                } catch (InterruptedException ignored) {
-                    return;
-                }
-            }
-        }, "deathnode-ambient-auth");
-        ambientThread.setDaemon(true);
-        ambientThread.start();
 
         textGUI.addWindowAndWait(authWindow);
 
         matrixRunning.set(false);
         matrixThread.interrupt();
         backgroundWindow.close();
-        ambientRunning.set(false);
-        ambientThread.interrupt();
         screen.stopScreen();
+        terminalFrame.dispose();
     }
 
     private static Panel createLoginPanel(WindowBasedTextGUI textGUI, BasicWindow authWindow) {
@@ -888,11 +972,15 @@ public class Main {
             }
             ensureColumns(lastSize.getColumns(), lastSize.getRows());
             tick++;
+
+            boolean advance = (tick % 2) == 0;
             int rows = lastSize.getRows();
-            for (int x = 0; x < headY.length; x++) {
-                headY[x] += speed[x];
-                if (headY[x] > rows + trail[x] + 2) {
-                    resetColumn(x, rows);
+            if (advance) {
+                for (int x = 0; x < headY.length; x++) {
+                    headY[x] += speed[x];
+                    if (headY[x] > rows + trail[x] + 2) {
+                        resetColumn(x, rows);
+                    }
                 }
             }
             invalidate();
@@ -915,16 +1003,15 @@ public class Main {
 
         private void resetColumn(int x, int rows) {
             headY[x] = -rnd.nextInt(Math.max(1, rows));
-            speed[x] = 1 + rnd.nextInt(3);
-            trail[x] = 6 + rnd.nextInt(18);
+            speed[x] = 1;
+            trail[x] = 10 + rnd.nextInt(26);
         }
 
         private char randChar() {
-            int r = rnd.nextInt(10);
-            if (r < 6) {
-                return (char) ('0' + rnd.nextInt(10));
-            }
-            return (char) ('a' + rnd.nextInt(26));
+            String charset = "0123456789abcdef" +
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+                    "!@#$%^&*()_+-=[]{};:,.<>?/\\|";
+            return charset.charAt(rnd.nextInt(charset.length()));
         }
 
         @Override
@@ -971,18 +1058,43 @@ public class Main {
                         }
                     }
 
-                    if ((c.tick % 40) < 12) {
-                        String base = "DEATH NOTE";
-                        int startX = Math.max(0, (cols - base.length()) / 2);
-                        int y = Math.max(0, rows / 2 - 10);
-                        StringBuilder glitch = new StringBuilder(base);
-                        int glitches = 1 + c.rnd.nextInt(3);
-                        for (int i = 0; i < glitches; i++) {
-                            int idx = c.rnd.nextInt(glitch.length());
-                            glitch.setCharAt(idx, c.randChar());
+                    if ((c.tick % 55) < 10) {
+                        int y = c.rnd.nextInt(Math.max(1, rows));
+                        g.setForegroundColor(TRAIL_3);
+                        for (int x = 0; x < cols; x++) {
+                            if (c.rnd.nextInt(3) == 0) {
+                                g.putString(x, y, String.valueOf(c.randChar()));
+                            }
                         }
-                        g.setForegroundColor(TRAIL_1);
-                        g.putString(startX, y, glitch.toString());
+                    }
+
+                    if ((c.tick % 160) < 26) {
+                        String[] banner = new String[]{
+                                "██████╗ ███████╗ █████╗ ████████╗██╗  ██╗",
+                                "██╔══██╗██╔════╝██╔══██╗╚══██╔══╝██║  ██║",
+                                "██║  ██║█████╗  ███████║   ██║   ███████║",
+                                "██║  ██║██╔══╝  ██╔══██║   ██║   ██╔══██║",
+                                "██████╔╝███████╗██║  ██║   ██║   ██║  ██║",
+                                "╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝"
+                        };
+                        int startY = Math.max(0, rows / 2 - banner.length / 2);
+                        for (int i = 0; i < banner.length; i++) {
+                            String line = banner[i];
+                            StringBuilder gl = new StringBuilder(line);
+                            int glitches = 1 + c.rnd.nextInt(5);
+                            for (int j = 0; j < glitches; j++) {
+                                int idx = c.rnd.nextInt(gl.length());
+                                char ch = gl.charAt(idx);
+                                if (ch != ' ') {
+                                    gl.setCharAt(idx, c.randChar());
+                                }
+                            }
+                            int startX = Math.max(0, (cols - gl.length()) / 2);
+                            if (startX + gl.length() <= cols) {
+                                g.setForegroundColor(i == 0 ? HEAD : TRAIL_1);
+                                g.putString(startX, startY + i, gl.toString());
+                            }
+                        }
                     }
                 }
             };

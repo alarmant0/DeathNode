@@ -29,7 +29,7 @@ public class ReportWindow extends BasicWindow {
     private Thread ambientThread;
 
     public ReportWindow(String username, WindowBasedTextGUI textGUI) {
-        super("DEATH NODE :: REPORT TERMINAL");
+        super("DEATH NODE :: REPORT");
         this.username = username;
         this.textGUI = textGUI;
         initializeUI();
@@ -44,6 +44,115 @@ public class ReportWindow extends BasicWindow {
         return super.handleInput(key);
     }
 
+    private void showRyukDialog() {
+        final long openedAtMs = System.currentTimeMillis();
+        final BasicWindow dialog = new BasicWindow("DEATH NOTE :: RYUK") {
+            @Override
+            public boolean handleInput(KeyStroke key) {
+                if (key != null && key.getKeyType() == KeyType.Escape) {
+                    close();
+                    return true;
+                }
+
+                if (key != null && (key.getKeyType() == KeyType.Enter || key.getKeyType() == KeyType.Character)) {
+                    long elapsed = System.currentTimeMillis() - openedAtMs;
+                    if (elapsed < 450) {
+                        return true;
+                    }
+                }
+                return super.handleInput(key);
+            }
+        };
+
+        Panel panel = new Panel(new LinearLayout(Direction.VERTICAL));
+        panel.addComponent(new Label("Submission accepted."));
+        panel.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+
+        String art = """
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢶⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠈⠹⡆⢀⣤⣤⡀⢠⣤⢠⣤⣿⡤⣴⡆⠀⣴⠀⠀⠀⢠⣄⠀⢠⡄⠀⠀⠀⣤⣄⣿⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠰⠆⠀⣷⢸⣧⣀⡀⢸⢹⡆⠀⢸⡇⠠⣧⢤⣿⠀⠀⠀⢸⡟⣦⣸⡇⡞⡙⢣⡀⢠⡇⠀⢿⠋⠛⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⣠⠟⢸⣇⣀⡀⣿⠉⢻⡀⢸⡇⠀⣿⠀⣿⠀⠀⠀⣸⡇⠘⢿⡏⢇⣁⡼⠃⣼⠃⠀⣼⡓⠒⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢀⠀⠀⠀⡿⠒⠋⠁⠀⠈⠉⠉⠁⠉⠀⠀⠀⠀⠉⠀⠉⠀⠉⠀⠀⠀⠉⠀⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠛⠓⠲⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⣠⣴⣶⣾⣿⣿⣾⣷⣦⣤⣿⣶⣶⣤⣄⣀⢤⡀⠀⠀⠀⠀⢰⣴⣶⣷⣴⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣄⣀⣀⣀⣤⣤⣶⣶⣶⣦⣤⠤
+⠠⠔⠛⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⢀⣀⣤⣾⣿⣿⣿⣿⣿⣿⣿⠟⠛⠛⠂⠀⠀
+⠀⠀⠀⠘⠋⠉⢻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣤⡀⢻⣿⣿⣿⣿⡏⠀⠀⠀⢀⣤⣾⣿⣶⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠁⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠘⠀⡿⠛⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣾⣿⣿⣿⣿⣤⣴⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠋⠁⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠼⠛⠟⠋⣿⣿⡿⠋⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⣿⣿⠋⠙⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢹⡿⠀⠸⠋⣿⣿⣿⠛⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠻⣿⣿⣿⠋⠛⠇⠀⠀⢹⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠃⠀⠀⢀⣿⣿⠁⠀⠈⢻⣿⣿⣿⣿⣿⡿⠋⠈⣿⣿⡏⠃⠀⠘⣿⠀⠀⠀⠀⠀⠀⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⡏⠀⠀⠀⠈⣿⣿⣿⣿⣿⠀⠀⠀⠸⣿⣇⠀⠀⠀⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⡇⠀⠀⠀⣼⣿⣿⣿⣿⣿⡄⠀⠀⠀⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⠁⠀⠀⣸⣿⣿⣿⣿⣿⣿⣿⠆⠀⠀⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣇⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣦⡀⢠⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⣦⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣿⣿⠏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⠋⠉⠉⠛⠉⠋⠻⣿⣿⣿⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⠃⠀⠀⠀⠀⠀⠀⠀⠈⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⣿⣦⡀⠀⠀⠀⠀⣤⣾⣿⣿⣿⣿⠆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢹⣿⣿⣿⣿⡇⠙⠀⠀⠀⢸⠋⣿⣿⣿⣿⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⣿⢿⣷⡢⡀⠀⠀⢀⣰⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢿⣿⠀⠁⠁⠀⠀⠀⠀⠉⢠⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⣿⡄⠀⠀⠀⠀⠀⠀⠀⣾⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣇⠀⠀⠀⠀⠀⠀⢸⣿⡅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣾⡿⠀⠀⠀⠀⠀⠀⠘⢿⣧⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⠃⠀⠀⠀⠀⠀⠀⠀⠈⠻⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+""";
+
+        String[] lines = art.split("\\n", -1);
+        int maxLen = 0;
+        for (String line : lines) {
+            if (line != null && line.length() > maxLen) {
+                maxLen = line.length();
+            }
+        }
+        int boxW = Math.min(120, Math.max(60, maxLen + 2));
+        int boxH = Math.min(40, Math.max(16, lines.length + 1));
+
+        TextBox artBox = new TextBox(new TerminalSize(boxW, boxH));
+        artBox.setReadOnly(true);
+        artBox.setText(art);
+        panel.addComponent(artBox);
+
+        Panel buttonPanel = new Panel(new LinearLayout(Direction.HORIZONTAL));
+        Button ok = new Button("OK", dialog::close);
+        ok.setEnabled(false);
+        ok.setRenderer(new SolidFocusButtonRenderer());
+        buttonPanel.addComponent(ok);
+        panel.addComponent(buttonPanel);
+
+        dialog.setComponent(panel);
+        dialog.setHints(java.util.Collections.singletonList(Hint.CENTERED));
+
+        Thread autoClose = new Thread(() -> {
+            try {
+                Thread.sleep(650);
+            } catch (InterruptedException ignored) {
+                return;
+            }
+            invokeLater(() -> {
+                try {
+                    dialog.close();
+                } catch (Exception ignored) {
+                }
+            });
+        }, "deathnode-ryuk-autoclose");
+        autoClose.setDaemon(true);
+        autoClose.start();
+
+        new Thread(() -> {
+            try {
+                Thread.sleep(450);
+            } catch (InterruptedException ignored) {
+                return;
+            }
+            invokeLater(() -> ok.setEnabled(true));
+        }, "deathnode-ryuk-ok-delay").start();
+
+        textGUI.addWindowAndWait(dialog);
+    }
+
     @Override
     public void close() {
         stopAmbient();
@@ -53,9 +162,6 @@ public class ReportWindow extends BasicWindow {
     private void initializeUI() {
         Panel mainPanel = new Panel();
         mainPanel.setLayoutManager(new GridLayout(1));
-
-        mainPanel.addComponent(new Label("SUBMIT NEW REPORT").setLayoutData(
-                GridLayout.createHorizontallyFilledLayoutData(1)));
 
         mainPanel.addComponent(new EmptySpace(TerminalSize.ONE));
         Panel suspectPanel = new Panel(new GridLayout(2));
@@ -125,6 +231,7 @@ public class ReportWindow extends BasicWindow {
 
             new Thread(() -> {
                 String finalMsg;
+                boolean success = false;
                 try {
                     Report report = Report.createNew(username, suspect, description, location);
 
@@ -134,8 +241,11 @@ public class ReportWindow extends BasicWindow {
                     SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, username);
                     String secJson = secDoc.toJson();
 
-                    Path outPath = Paths.get("report_" + username + ".secure");
+                    Path outDir = Paths.get("db", "reports");
+                    Files.createDirectories(outDir);
+                    Path outPath = outDir.resolve("report_" + username + ".secure");
                     Files.writeString(outPath, secJson, StandardCharsets.UTF_8);
+                    success = true;
 
                     boolean posted = false;
                     try {
@@ -173,12 +283,17 @@ public class ReportWindow extends BasicWindow {
                 }
 
                 String msg = finalMsg;
+                boolean showRyuk = success;
                 invokeLater(() -> {
                     messageLabel.setText(msg);
                     submitRef[0].setEnabled(true);
                     suspectBox.setEnabled(true);
                     locationBox.setEnabled(true);
                     descriptionBox.setEnabled(true);
+
+                    if (showRyuk) {
+                        showRyukDialog();
+                    }
                 });
             }, "deathnode-report-submit").start();
         });
@@ -198,17 +313,10 @@ public class ReportWindow extends BasicWindow {
         buttons.addComponent(close);
         mainPanel.addComponent(buttons);
 
-        mainPanel.addComponent(new EmptySpace(new TerminalSize(1, 1)));
-        Label ambientLabel = new Label(" ");
-        ambientLabel.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
-        mainPanel.addComponent(ambientLabel);
-
-        Border border = Borders.doubleLine("REPORT");
+        Border border = Borders.doubleLine();
         border.setComponent(mainPanel);
         setComponent(border);
         setHints(java.util.Collections.singletonList(Hint.CENTERED));
-
-        startAmbient(ambientLabel);
     }
 
     private void invokeLater(Runnable runnable) {

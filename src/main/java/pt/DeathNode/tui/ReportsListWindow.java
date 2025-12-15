@@ -56,7 +56,7 @@ public class ReportsListWindow extends BasicWindow {
     }
 
     public ReportsListWindow(String currentUser) {
-        super("DEATH NODE :: ARCHIVE");
+        super("DEATH NODE :: ARCHIVE / " + currentUser);
         this.currentUser = currentUser;
         initializeUI();
     }
@@ -342,9 +342,6 @@ public class ReportsListWindow extends BasicWindow {
     private void initializeUI() {
         Panel root = new Panel(new LinearLayout(Direction.VERTICAL));
 
-        Label header = new Label("ARCHIVE / " + currentUser);
-        header.setLayoutData(LinearLayout.createLayoutData(LinearLayout.Alignment.Fill));
-        root.addComponent(header);
         root.addComponent(new EmptySpace(new TerminalSize(1, 1)));
 
         Panel content = new Panel(new GridLayout(2));
@@ -416,7 +413,7 @@ public class ReportsListWindow extends BasicWindow {
         Label ambientLabel = new Label(" ");
         root.addComponent(ambientLabel);
 
-        Border border = Borders.doubleLine("ARCHIVE  [ESC to close]");
+        Border border = Borders.doubleLine();
         border.setComponent(root);
         setComponent(border);
         setHints(java.util.Collections.singletonList(Hint.CENTERED));
