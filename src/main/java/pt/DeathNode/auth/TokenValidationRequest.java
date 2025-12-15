@@ -11,7 +11,6 @@ public class TokenValidationRequest {
         this.consume = consume;
     }
 
-    // Getters and setters
     public String getTokenId() { return tokenId; }
     public void setTokenId(String tokenId) { this.tokenId = tokenId; }
 

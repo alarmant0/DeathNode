@@ -2,6 +2,8 @@ package pt.DeathNode.tui;
 
 import com.googlecode.lanterna.TerminalSize;
 import com.googlecode.lanterna.gui2.*;
+import com.googlecode.lanterna.input.KeyStroke;
+import com.googlecode.lanterna.input.KeyType;
 import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
@@ -21,17 +23,26 @@ public class ReportWindow extends BasicWindow {
     private final WindowBasedTextGUI textGUI;
 
     public ReportWindow(String username, WindowBasedTextGUI textGUI) {
-        super("Submit Report");
+        super("DEATH NODE :: REPORT TERMINAL");
         this.username = username;
         this.textGUI = textGUI;
         initializeUI();
+    }
+
+    @Override
+    public boolean handleInput(KeyStroke key) {
+        if (key != null && key.getKeyType() == KeyType.Escape) {
+            close();
+            return true;
+        }
+        return super.handleInput(key);
     }
 
     private void initializeUI() {
         Panel mainPanel = new Panel();
         mainPanel.setLayoutManager(new GridLayout(1));
 
-        mainPanel.addComponent(new Label("Submit New Report").setLayoutData(
+        mainPanel.addComponent(new Label("SUBMIT NEW REPORT").setLayoutData(
                 GridLayout.createHorizontallyFilledLayoutData(1)));
 
         mainPanel.addComponent(new EmptySpace(TerminalSize.ONE));
@@ -73,8 +84,6 @@ public class ReportWindow extends BasicWindow {
 
             try {
                 Report report = Report.createNew(username, suspect, description, location);
-
-                KeyManager.generateDummyKeys(username);
 
                 SecretKey encKey = KeyManager.loadSymmetricKey(username);
                 PrivateKey signKey = KeyManager.loadPrivateKey(username);
@@ -122,6 +131,9 @@ public class ReportWindow extends BasicWindow {
         buttons.addComponent(close);
         mainPanel.addComponent(buttons);
 
-        setComponent(mainPanel);
+        Border border = Borders.doubleLine("REPORT");
+        border.setComponent(mainPanel);
+        setComponent(border);
+        setHints(java.util.Collections.singletonList(Hint.CENTERED));
     }
 }

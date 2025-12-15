@@ -8,7 +8,6 @@ public class TokenRequest {
 
     public TokenRequest() {}
 
-    // Getters and setters
     public String getIssuerId() { return issuerId; }
     public void setIssuerId(String issuerId) { this.issuerId = issuerId; }
 

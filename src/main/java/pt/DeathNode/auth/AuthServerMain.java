@@ -118,7 +118,6 @@ public class AuthServerMain {
                     String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                     TokenRequest req = GSON.fromJson(body, TokenRequest.class);
                     
-                    // Verify the requester is a valid user (alice, bob, etc.)
                     if (!isValidUser(req.getIssuerId())) {
                         String response = "{\"error\":\"Invalid issuer\"}";
                         byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
@@ -129,7 +128,6 @@ public class AuthServerMain {
                         return;
                     }
                     
-                    // Create and save the invitation token
                     InvitationToken token = InvitationToken.create(
                         req.getIssuerId(), 
                         req.getMaxUses(), 
@@ -240,8 +238,7 @@ public class AuthServerMain {
                         ")")) {
             stmt.executeUpdate();
         }
-        
-        // Create invitation tokens table
+
         try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS invitation_tokens (" +
                         "token_id TEXT PRIMARY KEY," +
@@ -255,8 +252,7 @@ public class AuthServerMain {
                         ")")) {
             stmt.executeUpdate();
         }
-        
-        // Create users table with integrity constraints
+
         try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS users (" +
                         "username TEXT PRIMARY KEY CHECK (length(username) >= 3)," +
@@ -267,11 +263,9 @@ public class AuthServerMain {
                         ")")) {
             stmt.executeUpdate();
         }
-        
-        // Load existing users into cache
+
         loadUsersFromDatabase();
-        
-        // Add default users if table is empty
+
         if (authorizedUsers.isEmpty()) {
             addDefaultUsers();
         }
@@ -324,9 +318,7 @@ public class AuthServerMain {
 
     private static void addDefaultUsers() throws SQLException {
         try {
-            // Add alice:alice
             addUser("alice", "alice");
-            // Add bob:bob
             addUser("bob", "bob");
             System.out.println("Added default users: alice, bob");
         } catch (Exception e) {
