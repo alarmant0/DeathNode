@@ -10,6 +10,7 @@ import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
 import pt.DeathNode.crypto.KeyManager;
+import pt.DeathNode.crypto.ChainStateStore;
 
 import javax.crypto.SecretKey;
 import java.net.HttpURLConnection;
@@ -238,7 +239,16 @@ public class ReportWindow extends BasicWindow {
                     SecretKey encKey = KeyManager.loadSymmetricKey(username);
                     PrivateKey signKey = KeyManager.loadPrivateKey(username);
 
-                    SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, username);
+                    ChainStateStore.ChainParams chainParams = ChainStateStore.nextParams(username);
+                    SecureDocument secDoc = CryptoLib.protect(
+                            report,
+                            encKey,
+                            signKey,
+                            username,
+                            chainParams.getSequenceNumber(),
+                            chainParams.getPreviousHash()
+                    );
+                    ChainStateStore.updateFromDocument(username, secDoc);
                     String secJson = secDoc.toJson();
 
                     Path outDir = Paths.get("db", "reports");

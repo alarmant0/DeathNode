@@ -137,7 +137,16 @@ public class DeathNodeCLI {
         SecretKey encKey = KeyManager.loadSymmetricKey(keyName);
         PrivateKey signKey = KeyManager.loadPrivateKey(keyName);
 
-        SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, keyName);
+        ChainStateStore.ChainParams chainParams = ChainStateStore.nextParams(keyName);
+        SecureDocument secDoc = CryptoLib.protect(
+                report,
+                encKey,
+                signKey,
+                keyName,
+                chainParams.getSequenceNumber(),
+                chainParams.getPreviousHash()
+        );
+        ChainStateStore.updateFromDocument(keyName, secDoc);
 
         Files.writeString(Paths.get(outputFile), secDoc.toJson());
 
@@ -247,7 +256,16 @@ public class DeathNodeCLI {
         SecretKey encKey   = KeyManager.loadSymmetricKey(userId);
         PrivateKey signKey = KeyManager.loadPrivateKey(userId);
 
-        SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, userId);
+        ChainStateStore.ChainParams chainParams = ChainStateStore.nextParams(userId);
+        SecureDocument secDoc = CryptoLib.protect(
+                report,
+                encKey,
+                signKey,
+                userId,
+                chainParams.getSequenceNumber(),
+                chainParams.getPreviousHash()
+        );
+        ChainStateStore.updateFromDocument(userId, secDoc);
 
         String secJson = secDoc.toJson();
 

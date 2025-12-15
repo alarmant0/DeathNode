@@ -20,7 +20,10 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReportsListWindow extends BasicWindow {
@@ -218,6 +221,11 @@ public class ReportsListWindow extends BasicWindow {
                 return new FetchResult(new ArrayList<>(), null);
             }
 
+            String sr3Error = validateSr3(docs);
+            if (sr3Error != null) {
+                return new FetchResult(null, sanitizeSingleLine(sr3Error));
+            }
+
             List<ReportItem> items = new ArrayList<>();
             for (SecureDocument doc : docs) {
                 if (doc == null || doc.getEncryptedData() == null) {
@@ -269,6 +277,81 @@ public class ReportsListWindow extends BasicWindow {
         } catch (Exception e) {
             return new FetchResult(null, sanitizeSingleLine("Error loading reports: " + e.getMessage()));
         }
+    }
+
+    private static String normalizePrevHash(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private static String validateSr3(SecureDocument[] docs) {
+        Map<String, List<SecureDocument>> bySigner = new HashMap<>();
+        for (SecureDocument d : docs) {
+            if (d == null) {
+                continue;
+            }
+            String signer = d.getSignerId();
+            if (signer == null) {
+                continue;
+            }
+            bySigner.computeIfAbsent(signer, k -> new ArrayList<>()).add(d);
+        }
+
+        for (Map.Entry<String, List<SecureDocument>> e : bySigner.entrySet()) {
+            String signer = e.getKey();
+            List<SecureDocument> list = e.getValue();
+            if (list == null || list.isEmpty()) {
+                continue;
+            }
+
+            boolean anySeq = false;
+            boolean anyMissingSeq = false;
+            for (SecureDocument d : list) {
+                if (d.getSequenceNumber() == null) {
+                    anyMissingSeq = true;
+                } else {
+                    anySeq = true;
+                }
+            }
+            if (!anySeq || anyMissingSeq) {
+                continue;
+            }
+
+            list.sort(Comparator.comparingLong(SecureDocument::getSequenceNumber));
+
+            long expectedSeq = 1L;
+            SecureDocument prev = null;
+            for (SecureDocument cur : list) {
+                long seq = cur.getSequenceNumber();
+                if (seq != expectedSeq) {
+                    return "SR3 violation for signer '" + signer + "': expected sequence_number=" + expectedSeq + " but got " + seq;
+                }
+
+                String prevHash = normalizePrevHash(cur.getPreviousHash());
+                if (prev == null) {
+                    if (prevHash != null) {
+                        return "SR3 violation for signer '" + signer + "': expected previous_hash to be null at sequence_number=1";
+                    }
+                } else {
+                    try {
+                        String expectedPrev = CryptoLib.computeChainHash(prev);
+                        if (prevHash == null || !expectedPrev.equals(prevHash)) {
+                            return "SR3 violation for signer '" + signer + "': previous_hash mismatch at sequence_number=" + seq;
+                        }
+                    } catch (Exception ex) {
+                        return "SR3 violation for signer '" + signer + "': failed computing previous hash";
+                    }
+                }
+
+                prev = cur;
+                expectedSeq++;
+            }
+        }
+
+        return null;
     }
 
     private void refreshReportsAsync() {

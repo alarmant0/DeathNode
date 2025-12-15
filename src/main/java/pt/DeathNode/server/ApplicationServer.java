@@ -24,6 +24,9 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 
+import pt.DeathNode.crypto.CryptoLib;
+import pt.DeathNode.crypto.SecureDocument;
+
 public class ApplicationServer {
 
     private static final String APP_SERVER_PORT = "9090";
@@ -220,6 +223,16 @@ public class ApplicationServer {
         private void handleStoreReport(HttpExchange exchange) throws Exception {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
+            SecureDocument doc = GSON.fromJson(body, SecureDocument.class);
+            if (doc == null || doc.getSignerId() == null) {
+                String error = "{\"error\":\"Invalid report payload\"}";
+                exchange.sendResponseHeaders(400, error.getBytes().length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(error.getBytes());
+                }
+                return;
+            }
+
             String reporter = extractReporterFromToken(exchange);
             if (reporter == null) {
                 String error = "{\"error\":\"Unauthorized\"}";
@@ -228,6 +241,28 @@ public class ApplicationServer {
                     os.write(error.getBytes());
                 }
                 return;
+            }
+
+            if (!reporter.equals(doc.getSignerId())) {
+                String error = "{\"error\":\"Signer mismatch\"}";
+                exchange.sendResponseHeaders(400, error.getBytes().length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(error.getBytes());
+                }
+                return;
+            }
+
+            if (doc.getSequenceNumber() != null) {
+                SecureDocument last = loadLastReportForReporter(reporter);
+                String violation = validateChainAppend(last, doc);
+                if (violation != null) {
+                    String error = "{\"error\":\"" + violation.replace("\"", "'") + "\"}";
+                    exchange.sendResponseHeaders(409, error.getBytes().length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(error.getBytes());
+                    }
+                    return;
+                }
             }
 
             try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
@@ -244,6 +279,66 @@ public class ApplicationServer {
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(response.getBytes());
             }
+        }
+
+        private SecureDocument loadLastReportForReporter(String reporter) throws Exception {
+            try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                    "SELECT document_json FROM reports WHERE reporter = ? ORDER BY id DESC LIMIT 1")) {
+                stmt.setString(1, reporter);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        String docJson = rs.getString("document_json");
+                        if (docJson == null || docJson.isEmpty()) {
+                            return null;
+                        }
+                        return GSON.fromJson(docJson, SecureDocument.class);
+                    }
+                }
+            }
+            return null;
+        }
+
+        private String normalizePrevHash(String s) {
+            if (s == null) {
+                return null;
+            }
+            String t = s.trim();
+            return t.isEmpty() ? null : t;
+        }
+
+        private String validateChainAppend(SecureDocument last, SecureDocument next) {
+            Long nextSeqObj = next.getSequenceNumber();
+            if (nextSeqObj == null) {
+                return null;
+            }
+            long nextSeq = nextSeqObj;
+            String nextPrev = normalizePrevHash(next.getPreviousHash());
+
+            if (last == null || last.getSequenceNumber() == null) {
+                if (nextSeq != 1L) {
+                    return "SR3 violation: expected first sequence_number=1 but got " + nextSeq;
+                }
+                if (nextPrev != null) {
+                    return "SR3 violation: expected previous_hash to be null for first document";
+                }
+                return null;
+            }
+
+            long expectedSeq = last.getSequenceNumber() + 1L;
+            if (nextSeq != expectedSeq) {
+                return "SR3 violation: expected sequence_number=" + expectedSeq + " but got " + nextSeq;
+            }
+
+            try {
+                String expectedPrev = CryptoLib.computeChainHash(last);
+                if (nextPrev == null || !expectedPrev.equals(nextPrev)) {
+                    return "SR3 violation: previous_hash mismatch";
+                }
+            } catch (Exception e) {
+                return "SR3 violation: failed computing previous hash: " + e.getMessage();
+            }
+
+            return null;
         }
 
         private void handleListReports(HttpExchange exchange) throws Exception {
