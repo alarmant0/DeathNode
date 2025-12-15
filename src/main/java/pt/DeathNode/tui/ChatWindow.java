@@ -13,7 +13,7 @@ public class ChatWindow extends BasicWindow {
     private final MessageBox inputBox;
 
     public ChatWindow() {
-        super("Chat");
+        super("DEATH NODE :: COMMS");
 
         Panel main = new Panel(new GridLayout(1));
 
@@ -27,12 +27,23 @@ public class ChatWindow extends BasicWindow {
         main.addComponent(inputBox);
 
         Panel btnPanel = new Panel(new GridLayout(2));
-        btnPanel.addComponent(new Button("Send", this::sendMessage));
-        btnPanel.addComponent(new Button("Close", this::close));
+        btnPanel.addComponent(new Button("TRANSMIT", this::sendMessage));
+        btnPanel.addComponent(new Button("DISCONNECT", this::close));
         main.addComponent(btnPanel);
 
-        setComponent(main);
+        Border border = Borders.doubleLine("COMMS");
+        border.setComponent(main);
+        setComponent(border);
         setHints(Collections.singletonList(Hint.CENTERED));
+    }
+
+    @Override
+    public boolean handleInput(KeyStroke key) {
+        if (key != null && key.getKeyType() == KeyType.Escape) {
+            close();
+            return true;
+        }
+        return super.handleInput(key);
     }
 
     public void focusInput(TextGUI gui) {

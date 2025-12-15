@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public class InvitationToken {
     private String tokenId;
-    private String issuerId; // who created this token (alice, bob, etc.)
+    private String issuerId;
     private String issuedAt;
     private String expiresAt;
     private int maxUses;
@@ -54,7 +54,6 @@ public class InvitationToken {
         return new Gson().fromJson(json, InvitationToken.class);
     }
 
-    // Getters and setters
     public String getTokenId() { return tokenId; }
     public void setTokenId(String tokenId) { this.tokenId = tokenId; }
 
