@@ -118,6 +118,12 @@ acs-*.bib
 *.gls
 *.glsdefs
 
+certs/**/*.p12
+certs/**/*.jks
+certs/**/*.key
+certs/**/*.pem
+certs/**/truststore.*
+
 *-gnuplottex-*
 
 *.gaux
