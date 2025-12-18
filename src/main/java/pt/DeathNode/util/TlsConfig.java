@@ -4,6 +4,8 @@ import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.FileInputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyStore;
 
 public final class TlsConfig {
@@ -13,7 +15,14 @@ public final class TlsConfig {
 
     public static boolean isTlsEnabled() {
         String ks = System.getenv("DEATHNODE_TLS_KEYSTORE_PATH");
-        return ks != null && !ks.trim().isEmpty();
+        if (ks == null || ks.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            return Files.isRegularFile(Path.of(ks.trim()));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     public static SSLContext buildSslContextFromEnv() throws Exception {
@@ -57,6 +66,15 @@ public final class TlsConfig {
         if (tsPath == null || tsPath.trim().isEmpty()) {
             return;
         }
+
+        try {
+            if (!Files.isRegularFile(Path.of(tsPath.trim()))) {
+                return;
+            }
+        } catch (Exception ignored) {
+            return;
+        }
+
         String tsPass = requiredEnv("DEATHNODE_TLS_TRUSTSTORE_PASSWORD");
         String tsType = envOrDefault("DEATHNODE_TLS_TRUSTSTORE_TYPE", "PKCS12");
 

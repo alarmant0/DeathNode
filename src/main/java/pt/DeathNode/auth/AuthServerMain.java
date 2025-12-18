@@ -38,6 +38,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.net.URLDecoder;
+import java.util.HashMap;
+import java.util.Map;
 
 public class AuthServerMain {
 
@@ -61,6 +64,7 @@ public class AuthServerMain {
             } else if ("--token-minutes".equals(args[i]) && i + 1 < args.length) {
                 tokenValidityMinutes = Long.parseLong(args[++i]);
             }
+
         }
 
         ensureServerKeys();
@@ -241,8 +245,163 @@ public class AuthServerMain {
             }
         });
 
+        server.createContext("/checkpoints", new HttpHandler() {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+                try {
+                    Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
+                    String signer = query.get("signer");
+
+                    List<SignedCheckpoint> cps = buildSignedCheckpoints(privateKey, signer);
+                    String respJson = GSON.toJson(cps);
+                    byte[] respBytes = respJson.getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                } catch (Exception e) {
+                    String msg = "Error: " + e.getMessage();
+                    byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                }
+            }
+        });
+
         server.start();
         System.out.println("Auth server listening on port " + port);
+    }
+
+    public static boolean verifyCheckpoint(SignedCheckpoint cp, PublicKey serverPublicKey) {
+        if (cp == null || cp.getSignerId() == null || cp.getIssuedAt() == null || cp.getSignature() == null) {
+            return false;
+        }
+        try {
+            String payload = checkpointPayload(cp);
+            Signature sig = Signature.getInstance(SIGNATURE_ALGORITHM);
+            sig.initVerify(serverPublicKey);
+            sig.update(payload.getBytes(StandardCharsets.UTF_8));
+            byte[] signature = Base64.getDecoder().decode(cp.getSignature());
+            return sig.verify(signature);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String checkpointPayload(SignedCheckpoint cp) {
+        String lastHash = cp.getLastHash() == null ? "" : cp.getLastHash();
+        return cp.getSignerId() + "|" + cp.getLastSequenceNumber() + "|" + lastHash + "|" + cp.getIssuedAt();
+    }
+
+    private static SignedCheckpoint signCheckpoint(SignedCheckpoint cp, PrivateKey serverPrivateKey) throws Exception {
+        String payload = checkpointPayload(cp);
+        Signature sig = Signature.getInstance(SIGNATURE_ALGORITHM);
+        sig.initSign(serverPrivateKey);
+        sig.update(payload.getBytes(StandardCharsets.UTF_8));
+        byte[] signature = sig.sign();
+        cp.setSignature(Base64.getEncoder().encodeToString(signature));
+        return cp;
+    }
+
+    private static List<SignedCheckpoint> buildSignedCheckpoints(PrivateKey serverPrivateKey, String onlySigner) throws Exception {
+        List<SignedCheckpoint> out = new ArrayList<>();
+
+        List<SignerHead> heads = loadLatestHeads(onlySigner);
+        for (SignerHead h : heads) {
+            SignedCheckpoint cp = SignedCheckpoint.create(h.signerId, h.lastSeq, h.lastHash);
+            signCheckpoint(cp, serverPrivateKey);
+            out.add(cp);
+        }
+
+        return out;
+    }
+
+    private static final class SignerHead {
+        private final String signerId;
+        private final long lastSeq;
+        private final String lastHash;
+
+        private SignerHead(String signerId, long lastSeq, String lastHash) {
+            this.signerId = signerId;
+            this.lastSeq = lastSeq;
+            this.lastHash = lastHash;
+        }
+    }
+
+    private static List<SignerHead> loadLatestHeads(String onlySigner) throws SQLException {
+        List<SignerHead> out = new ArrayList<>();
+
+        String sql;
+        boolean filter = onlySigner != null && !onlySigner.trim().isEmpty();
+        if (filter) {
+            sql = "SELECT reporter, document_json FROM reports WHERE reporter = ? ORDER BY id DESC LIMIT 1";
+        } else {
+            sql = "SELECT reporter, document_json FROM reports WHERE id IN (SELECT MAX(id) FROM reports GROUP BY reporter)";
+        }
+
+        synchronized (AuthServerMain.class) {
+            try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(sql)) {
+                if (filter) {
+                    stmt.setString(1, onlySigner.trim());
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        String reporter = rs.getString(1);
+                        String docJson = rs.getString(2);
+                        long lastSeq = 0L;
+                        String lastHash = null;
+                        try {
+                            SecureDocument doc = docJson == null ? null : GSON.fromJson(docJson, SecureDocument.class);
+                            if (doc != null) {
+                                if (doc.getSequenceNumber() != null) {
+                                    lastSeq = doc.getSequenceNumber();
+                                }
+                                lastHash = CryptoLib.computeChainHash(doc);
+                            }
+                        } catch (Exception ignored) {
+                            lastSeq = 0L;
+                            lastHash = null;
+                        }
+
+                        if (reporter != null && !reporter.isBlank()) {
+                            out.add(new SignerHead(reporter, lastSeq, lastHash));
+                        }
+                    }
+                }
+            }
+        }
+
+        return out;
+    }
+
+    private static Map<String, String> parseQuery(String raw) {
+        Map<String, String> out = new HashMap<>();
+        if (raw == null || raw.isEmpty()) {
+            return out;
+        }
+        String[] parts = raw.split("&");
+        for (String p : parts) {
+            if (p == null || p.isEmpty()) {
+                continue;
+            }
+            int idx = p.indexOf('=');
+            String k = idx >= 0 ? p.substring(0, idx) : p;
+            String v = idx >= 0 ? p.substring(idx + 1) : "";
+            try {
+                k = URLDecoder.decode(k, StandardCharsets.UTF_8);
+                v = URLDecoder.decode(v, StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+            }
+            out.put(k, v);
+        }
+        return out;
     }
 
     private static void initDatabase() throws SQLException {
