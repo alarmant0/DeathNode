@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
+import pt.DeathNode.util.SimpleFileLogger;
 import pt.DeathNode.util.TlsConfig;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -54,6 +55,7 @@ public class AuthServerMain {
     private static final ConcurrentHashMap<String, InvitationToken> tokenCache = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> authorizedUsers = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> enrolledPseudonyms = new ConcurrentHashMap<>();
+    private static final SimpleFileLogger LOG = new SimpleFileLogger("logs/auth.log");
 
     public static void main(String[] args) throws Exception {
         int port = 8080;
@@ -97,8 +99,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join -> 405");
                     return;
                 }
                 byte[] body = exchange.getRequestBody().readAllBytes();
@@ -112,6 +116,7 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /join -> 400 invalid_request");
                     return;
                 }
 
@@ -123,6 +128,7 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /join -> 400 empty_pseudonym");
                     return;
                 }
 
@@ -136,6 +142,7 @@ public class AuthServerMain {
                             try (OutputStream os = exchange.getResponseBody()) {
                                 os.write(respBytes);
                             }
+                            LOG.info(exchange.getRemoteAddress() + " POST /join -> 403 invite_required pseudonym=" + pseudonym);
                             return;
                         }
 
@@ -148,6 +155,7 @@ public class AuthServerMain {
                             try (OutputStream os = exchange.getResponseBody()) {
                                 os.write(respBytes);
                             }
+                            LOG.info(exchange.getRemoteAddress() + " POST /join -> 403 invite_invalid pseudonym=" + pseudonym);
                             return;
                         }
 
@@ -164,7 +172,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /join -> 200 pseudonym=" + pseudonym);
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " POST /join -> 500 pseudonym=" + pseudonym, e);
                     String msg = "Error: " + e.getMessage();
                     byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -179,8 +189,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create -> 405");
                     return;
                 }
 
@@ -195,6 +207,7 @@ public class AuthServerMain {
                         try (OutputStream os = exchange.getResponseBody()) {
                             os.write(respBytes);
                         }
+                        LOG.info(exchange.getRemoteAddress() + " POST /tokens/create -> 403 issuer=" + req.getIssuerId());
                         return;
                     }
                     
@@ -215,7 +228,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /tokens/create -> 200 issuer=" + token.getIssuerId() + " tokenId=" + token.getTokenId());
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " POST /tokens/create -> 500", e);
                     String response = "{\"error\":\"" + e.getMessage() + "\"}";
                     byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -230,8 +245,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate -> 405");
                     return;
                 }
 
@@ -255,7 +272,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /tokens/validate -> 200 tokenId=" + req.getTokenId() + " valid=" + valid + " consume=" + req.isConsume());
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " POST /tokens/validate -> 500", e);
                     String response = "{\"error\":\"" + e.getMessage() + "\"}";
                     byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -270,16 +289,21 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /reports");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /reports");
                 String method = exchange.getRequestMethod();
                 try {
                     if ("POST".equalsIgnoreCase(method)) {
                         handleStoreReport(exchange);
+                        LOG.info(exchange.getRemoteAddress() + " POST /reports -> 200");
                     } else if ("GET".equalsIgnoreCase(method)) {
                         handleListReports(exchange);
+                        LOG.info(exchange.getRemoteAddress() + " GET /reports -> 200");
                     } else {
                         exchange.sendResponseHeaders(405, -1);
+                        LOG.info(exchange.getRemoteAddress() + " " + method + " /reports -> 405");
                     }
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " " + method + " /reports -> 500", e);
                     String msg = "Error: " + e.getMessage();
                     byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -294,8 +318,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints");
                 if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints -> 405");
                     return;
                 }
                 try {
@@ -310,7 +336,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " GET /checkpoints -> 200 signer=" + signer);
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " GET /checkpoints -> 500", e);
                     String msg = "Error: " + e.getMessage();
                     byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -323,6 +351,7 @@ public class AuthServerMain {
 
         server.start();
         System.out.println("[AUTH] Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
+        LOG.info("Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
     }
 
     public static boolean verifyCheckpoint(SignedCheckpoint cp, PublicKey serverPublicKey) {

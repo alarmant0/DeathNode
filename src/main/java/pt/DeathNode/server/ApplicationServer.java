@@ -34,6 +34,7 @@ import pt.DeathNode.crypto.CryptoLib;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.SimpleFileLogger;
 import pt.DeathNode.util.TlsConfig;
 
 public class ApplicationServer {
@@ -44,6 +45,7 @@ public class ApplicationServer {
     private static Connection DB_CONNECTION;
     private static final Gson GSON = new GsonBuilder().create();
     private static HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
+    private static final SimpleFileLogger LOG = new SimpleFileLogger("logs/gateway.log");
 
     public static void main(String[] args) throws Exception {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 9090;
@@ -86,6 +88,8 @@ public class ApplicationServer {
         server.start();
         System.out.println("[GATEWAY] Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
         System.out.println("[GATEWAY] Auth URL: " + AUTH_SERVER_URL);
+        LOG.info("Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
+        LOG.info("Auth URL: " + AUTH_SERVER_URL);
     }
 
     private static void initDatabase() throws SQLException {
@@ -153,6 +157,7 @@ public class ApplicationServer {
             String path = exchange.getRequestURI().getPath();
 
             System.out.println("[GATEWAY] " + exchange.getRemoteAddress() + " " + method + " " + path);
+            LOG.info(exchange.getRemoteAddress() + " " + method + " " + path);
 
             try {
                 if (path.endsWith("/login")) {
@@ -190,7 +195,10 @@ public class ApplicationServer {
                     os.write(outBytes);
                 }
 
+                LOG.info(exchange.getRemoteAddress() + " " + method + " " + path + " -> " + response.statusCode());
+
             } catch (Exception e) {
+                LOG.error(exchange.getRemoteAddress() + " " + method + " " + path + " -> 503", e);
                 String error = "{\"error\":\"Auth service unavailable: " + e.getMessage() + "\"}";
                 exchange.sendResponseHeaders(503, error.getBytes().length);
                 try (OutputStream os = exchange.getResponseBody()) {
@@ -222,6 +230,7 @@ public class ApplicationServer {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(response.getBytes());
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /api/auth/login -> 200 user=" + username);
                 } else {
                     String error = "{\"error\":\"Invalid credentials\"}";
                     exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -229,9 +238,11 @@ public class ApplicationServer {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(error.getBytes());
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /api/auth/login -> 401 user=" + username);
                 }
 
             } catch (Exception e) {
+                LOG.error(exchange.getRemoteAddress() + " POST /api/auth/login -> 500", e);
                 String error = "{\"error\":\"Login failed: " + e.getMessage() + "\"}";
                 exchange.sendResponseHeaders(500, error.getBytes().length);
                 try (OutputStream os = exchange.getResponseBody()) {
@@ -277,10 +288,13 @@ public class ApplicationServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String method = exchange.getRequestMethod();
+            String path = exchange.getRequestURI().getPath();
+            LOG.info(exchange.getRemoteAddress() + " " + method + " " + path);
 
             try {
                 if (!"POST".equalsIgnoreCase(method) && !"GET".equalsIgnoreCase(method)) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + method + " " + path + " -> 405");
                     return;
                 }
 
@@ -292,6 +306,7 @@ public class ApplicationServer {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(error.getBytes(StandardCharsets.UTF_8));
                     }
+                    LOG.info(exchange.getRemoteAddress() + " " + method + " " + path + " -> 401");
                     return;
                 }
 
@@ -301,6 +316,7 @@ public class ApplicationServer {
                     handleListReports(exchange);
                 }
             } catch (Exception e) {
+                LOG.error(exchange.getRemoteAddress() + " " + method + " " + path + " -> 500", e);
                 String error = "{\"error\":\"" + e.getMessage() + "\"}";
                 exchange.sendResponseHeaders(500, error.getBytes().length);
                 try (OutputStream os = exchange.getResponseBody()) {
@@ -320,6 +336,7 @@ public class ApplicationServer {
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(error.getBytes(StandardCharsets.UTF_8));
                 }
+                LOG.info(exchange.getRemoteAddress() + " POST /api/reports -> 400");
                 return;
             }
 
@@ -330,6 +347,7 @@ public class ApplicationServer {
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(error.getBytes(StandardCharsets.UTF_8));
                 }
+                LOG.info(exchange.getRemoteAddress() + " POST /api/reports -> 400 signer_mismatch");
                 return;
             }
 
@@ -346,6 +364,7 @@ public class ApplicationServer {
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(response.body());
             }
+            LOG.info(exchange.getRemoteAddress() + " POST /api/reports -> " + response.statusCode());
         }
         private void handleListReports(HttpExchange exchange) throws Exception {
             URI authUri = URI.create(AUTH_SERVER_URL + "/reports");
@@ -360,6 +379,7 @@ public class ApplicationServer {
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(response.body());
             }
+            LOG.info(exchange.getRemoteAddress() + " GET /api/reports -> " + response.statusCode());
         }
 
         private String extractReporterFromToken(HttpExchange exchange) {
@@ -391,6 +411,7 @@ public class ApplicationServer {
         public void handle(HttpExchange exchange) throws IOException {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /api/checkpoints -> 405");
                 return;
             }
             try {
@@ -409,7 +430,9 @@ public class ApplicationServer {
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(response.body());
                 }
+                LOG.info(exchange.getRemoteAddress() + " GET /api/checkpoints -> " + response.statusCode());
             } catch (Exception e) {
+                LOG.error(exchange.getRemoteAddress() + " GET /api/checkpoints -> 503", e);
                 String error = "{\"error\":\"" + e.getMessage() + "\"}";
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(503, error.getBytes(StandardCharsets.UTF_8).length);
@@ -429,6 +452,7 @@ public class ApplicationServer {
             try (OutputStream os = exchange.getResponseBody()) {
                 os.write(response.getBytes());
             }
+            LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /api/health -> 200");
         }
     }
 }
