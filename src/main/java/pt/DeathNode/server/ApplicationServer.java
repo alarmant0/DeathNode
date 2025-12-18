@@ -168,19 +168,26 @@ public class ApplicationServer {
                         .method(method, HttpRequest.BodyPublishers.ofString(
                                 new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
 
-                exchange.getRequestHeaders().forEach((key, values) -> {
-                    if (!key.equalsIgnoreCase("Host")) {
-                        values.forEach(value -> requestBuilder.header(key, value));
-                    }
-                });
+                String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
+                if (contentType != null && !contentType.isBlank()) {
+                    requestBuilder.header("Content-Type", contentType);
+                } else {
+                    requestBuilder.header("Content-Type", "application/json");
+                }
+                String authz = exchange.getRequestHeaders().getFirst("Authorization");
+                if (authz != null && !authz.isBlank()) {
+                    requestBuilder.header("Authorization", authz);
+                }
 
                 HttpRequest request = requestBuilder.build();
                 HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
 
-                exchange.getResponseHeaders().putAll(response.headers().map());
-                exchange.sendResponseHeaders(response.statusCode(), response.body().getBytes().length);
+                String respContentType = response.headers().firstValue("Content-Type").orElse("application/json");
+                exchange.getResponseHeaders().set("Content-Type", respContentType);
+                byte[] outBytes = response.body() == null ? new byte[0] : response.body().getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(response.statusCode(), outBytes.length);
                 try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(response.body().getBytes());
+                    os.write(outBytes);
                 }
 
             } catch (Exception e) {
