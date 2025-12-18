@@ -84,8 +84,8 @@ public class ApplicationServer {
         server.createContext("/api/health", new HealthHandler());
 
         server.start();
-        System.out.println("Application Server listening on port " + port);
-        System.out.println("Auth Server at: " + AUTH_SERVER_URL);
+        System.out.println("[GATEWAY] Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
+        System.out.println("[GATEWAY] Auth URL: " + AUTH_SERVER_URL);
     }
 
     private static void initDatabase() throws SQLException {
@@ -151,6 +151,8 @@ public class ApplicationServer {
         public void handle(HttpExchange exchange) throws IOException {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
+
+            System.out.println("[GATEWAY] " + exchange.getRemoteAddress() + " " + method + " " + path);
 
             try {
                 if (path.endsWith("/login")) {

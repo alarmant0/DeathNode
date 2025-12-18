@@ -95,6 +95,7 @@ public class AuthServerMain {
         server.createContext("/join", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
+                System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
                     return;
@@ -136,6 +137,7 @@ public class AuthServerMain {
         server.createContext("/tokens/create", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
+                System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
                     return;
@@ -186,6 +188,7 @@ public class AuthServerMain {
         server.createContext("/tokens/validate", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
+                System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
                     return;
@@ -225,6 +228,7 @@ public class AuthServerMain {
         server.createContext("/reports", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
+                System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /reports");
                 String method = exchange.getRequestMethod();
                 try {
                     if ("POST".equalsIgnoreCase(method)) {
@@ -248,6 +252,7 @@ public class AuthServerMain {
         server.createContext("/checkpoints", new HttpHandler() {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
+                System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints");
                 if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
                     return;
@@ -276,7 +281,7 @@ public class AuthServerMain {
         });
 
         server.start();
-        System.out.println("Auth server listening on port " + port);
+        System.out.println("[AUTH] Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
     }
 
     public static boolean verifyCheckpoint(SignedCheckpoint cp, PublicKey serverPublicKey) {

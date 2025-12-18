@@ -23,6 +23,7 @@ import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.TokenManager;
 import pt.DeathNode.tui.ReportWindow;
 import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.SimpleFileLogger;
 import pt.DeathNode.util.TlsConfig;
 
 import javax.crypto.SecretKey;
@@ -67,6 +68,8 @@ public class Main {
     private static final String GATEWAY_URL = EndpointConfig.getGatewayUrl();
     private static final String DB_URL = "jdbc:sqlite:db/deathnode.db";
     private static final SimpleTheme DEATH_THEME = buildTheme();
+
+    private static final SimpleFileLogger LOG = new SimpleFileLogger("logs/tui.log");
 
     private static Image loadAppIconOrFallback() {
         try {
@@ -148,10 +151,13 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
+        LOG.info("TUI starting. GATEWAY_URL=" + GATEWAY_URL);
         try {
             TlsConfig.installClientTlsFromEnvIfPresent();
         } catch (Exception ignored) {
         }
+
+        LOG.info("TLS truststore path=" + System.getenv("DEATHNODE_TLS_TRUSTSTORE_PATH"));
 
         DefaultTerminalFactory terminalFactory = new DefaultTerminalFactory()
                 .setPreferTerminalEmulator(true)
@@ -167,9 +173,13 @@ public class Main {
         terminalFrame.setLocationRelativeTo(null);
         terminalFrame.setVisible(true);
 
+        LOG.info("Swing terminal visible");
+
         Terminal terminal = terminalFrame;
         Screen screen = new TerminalScreen(terminal);
         screen.startScreen();
+
+        LOG.info("Lanterna screen started");
 
         WindowBasedTextGUI textGUI = new MultiWindowTextGUI(screen);
         textGUI.setTheme(DEATH_THEME);
@@ -674,6 +684,7 @@ public class Main {
         String json = GSON.toJson(req);
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
 
+        LOG.info("Requesting /api/auth/join for user=" + userId + " to " + GATEWAY_URL);
         URL url = new URL(GATEWAY_URL + "/api/auth/join");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
@@ -685,19 +696,20 @@ public class Main {
         }
 
         int code = conn.getResponseCode();
+        LOG.info("/api/auth/join HTTP status=" + code);
         byte[] respBytes;
         if (code == 200) {
-            respBytes = readAllBytes(conn.getInputStream());
+            respBytes = conn.getInputStream().readAllBytes();
         } else {
-            respBytes = conn.getErrorStream() != null ? readAllBytes(conn.getErrorStream()) : new byte[0];
+            respBytes = conn.getErrorStream() != null ? conn.getErrorStream().readAllBytes() : new byte[0];
+            String msg = new String(respBytes, StandardCharsets.UTF_8);
+            LOG.warn("/api/auth/join error body=" + msg);
+            throw new IOException("Server returned status " + code + ": " + msg);
         }
 
-        String response = new String(respBytes, StandardCharsets.UTF_8);
-        if (code != 200) {
-            throw new IOException("Server returned " + code + ": " + response);
-        }
-
-        return GSON.fromJson(response, AuthToken.class);
+        String respJson = new String(respBytes, StandardCharsets.UTF_8);
+        LOG.info("/api/auth/join response bytes=" + respBytes.length);
+        return GSON.fromJson(respJson, AuthToken.class);
     }
 
     private static byte[] readAllBytes(java.io.InputStream inputStream) throws IOException {
