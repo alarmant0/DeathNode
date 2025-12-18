@@ -6,11 +6,13 @@ import com.googlecode.lanterna.TextColor;
 import com.googlecode.lanterna.gui2.*;
 import com.googlecode.lanterna.input.KeyStroke;
 import com.googlecode.lanterna.input.KeyType;
+import pt.DeathNode.auth.InvitationToken;
 import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.ChainStateStore;
+import pt.DeathNode.crypto.TokenManager;
 import pt.DeathNode.util.EndpointConfig;
 
 import javax.crypto.SecretKey;
@@ -192,7 +194,8 @@ public class ReportWindow extends BasicWindow {
         messageLabel.setLayoutData(GridLayout.createHorizontallyFilledLayoutData(1));
         mainPanel.addComponent(messageLabel);
 
-        Panel buttons = new Panel(new GridLayout(3));
+        final boolean canInvite = "alice".equalsIgnoreCase(username) || "bob".equalsIgnoreCase(username);
+        Panel buttons = new Panel(new GridLayout(canInvite ? 4 : 3));
         final Button[] submitRef = new Button[1];
         final Button submit = new Button("Submit", () -> {
             String suspect = suspectBox.getText().trim();
@@ -322,10 +325,49 @@ public class ReportWindow extends BasicWindow {
         });
         viewReports.setRenderer(new SolidFocusButtonRenderer());
 
+        final Button inviteBtn = new Button("Create Invitation", () -> {
+            inviteBtn.setEnabled(false);
+            new Thread(() -> {
+                String title;
+                String msg;
+                try {
+                    InvitationToken t = TokenManager.createToken(username, 1, 6, "invite");
+                    title = "Invitation Token";
+                    msg = "Token ID:\n" + t.getTokenId();
+                } catch (Exception e) {
+                    title = "Error";
+                    msg = "Failed to create token: " + e.getMessage();
+                }
+
+                String finalTitle = title;
+                String finalMsg = msg;
+                invokeLater(() -> {
+                    BasicWindow dialog = new BasicWindow(finalTitle);
+                    dialog.setHints(java.util.Collections.singletonList(Hint.CENTERED));
+
+                    Panel panel = new Panel(new LinearLayout(Direction.VERTICAL));
+                    panel.addComponent(new Label(finalMsg));
+                    panel.addComponent(new EmptySpace(new TerminalSize(1, 1)));
+                    Button ok = new Button("OK", dialog::close);
+                    ok.setRenderer(new SolidFocusButtonRenderer());
+                    panel.addComponent(ok);
+                    dialog.setComponent(Borders.doubleLine(panel));
+
+                    textGUI.addWindowAndWait(dialog);
+                    inviteBtn.setEnabled(true);
+                });
+            }, "deathnode-create-invite").start();
+        });
+        inviteBtn.setRenderer(new SolidFocusButtonRenderer());
+
         final Button close = new Button("Back", this::close);
         close.setRenderer(new SolidFocusButtonRenderer());
         buttons.addComponent(submit);
         buttons.addComponent(viewReports);
+
+        if (canInvite) {
+            buttons.addComponent(inviteBtn);
+        }
         buttons.addComponent(close);
         mainPanel.addComponent(buttons);
 
