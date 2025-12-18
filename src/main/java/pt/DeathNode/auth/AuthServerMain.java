@@ -4,10 +4,15 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.SecureDocument;
+import pt.DeathNode.crypto.CryptoLib;
+import pt.DeathNode.util.TlsConfig;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -62,7 +67,25 @@ public class AuthServerMain {
         initDatabase();
         PrivateKey privateKey = KeyManager.loadPrivateKey(SERVER_KEY_NAME);
 
-        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+        HttpServer server;
+        if (TlsConfig.isTlsEnabled()) {
+            javax.net.ssl.SSLContext sslContext = TlsConfig.buildSslContextFromEnv();
+            HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress(port), 0);
+            httpsServer.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+                @Override
+                public void configure(HttpsParameters params) {
+                    javax.net.ssl.SSLParameters sslParams = getSSLContext().getDefaultSSLParameters();
+                    params.setSSLParameters(sslParams);
+                    String require = System.getenv("DEATHNODE_TLS_REQUIRE_CLIENT_AUTH");
+                    if (require != null && require.trim().equalsIgnoreCase("true")) {
+                        params.setNeedClientAuth(true);
+                    }
+                }
+            });
+            server = httpsServer;
+        } else {
+            server = HttpServer.create(new InetSocketAddress(port), 0);
+        }
         long finalTokenValidityMinutes = tokenValidityMinutes;
 
         server.createContext("/join", new HttpHandler() {
@@ -421,6 +444,20 @@ public class AuthServerMain {
         String reporter = doc.getSignerId();
         String createdAt = doc.getTimestamp() != null ? doc.getTimestamp() : Instant.now().toString();
 
+        if (doc.getSequenceNumber() != null) {
+            SecureDocument last = loadLastReportForReporter(reporter);
+            String violation = validateChainAppend(last, doc);
+            if (violation != null) {
+                byte[] respBytes = violation.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "text/plain");
+                exchange.sendResponseHeaders(409, respBytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(respBytes);
+                }
+                return;
+            }
+        }
+
         synchronized (AuthServerMain.class) {
             try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
                     "INSERT INTO reports (reporter, created_at, document_json) VALUES (?, ?, ?)")) {
@@ -438,6 +475,71 @@ public class AuthServerMain {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(respBytes);
         }
+    }
+
+    private static SecureDocument loadLastReportForReporter(String reporter) throws SQLException {
+        if (reporter == null) {
+            return null;
+        }
+        synchronized (AuthServerMain.class) {
+            try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                    "SELECT document_json FROM reports WHERE reporter = ? ORDER BY id DESC LIMIT 1")) {
+                stmt.setString(1, reporter);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        String docJson = rs.getString(1);
+                        if (docJson == null || docJson.isEmpty()) {
+                            return null;
+                        }
+                        return GSON.fromJson(docJson, SecureDocument.class);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String normalizePrevHash(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private static String validateChainAppend(SecureDocument last, SecureDocument next) {
+        Long nextSeqObj = next.getSequenceNumber();
+        if (nextSeqObj == null) {
+            return null;
+        }
+        long nextSeq = nextSeqObj;
+        String nextPrev = normalizePrevHash(next.getPreviousHash());
+
+        if (last == null || last.getSequenceNumber() == null) {
+            if (nextSeq != 1L) {
+                return "SR3 violation: expected first sequence_number=1 but got " + nextSeq;
+            }
+            if (nextPrev != null) {
+                return "SR3 violation: expected previous_hash to be null for first document";
+            }
+            return null;
+        }
+
+        long expectedSeq = last.getSequenceNumber() + 1L;
+        if (nextSeq != expectedSeq) {
+            return "SR3 violation: expected sequence_number=" + expectedSeq + " but got " + nextSeq;
+        }
+
+        try {
+            String expectedPrev = CryptoLib.computeChainHash(last);
+            if (nextPrev == null || !expectedPrev.equals(nextPrev)) {
+                return "SR3 violation: previous_hash mismatch";
+            }
+        } catch (Exception e) {
+            return "SR3 violation: failed computing previous hash: " + e.getMessage();
+        }
+
+        return null;
     }
 
     private static void handleListReports(HttpExchange exchange) throws IOException, SQLException {

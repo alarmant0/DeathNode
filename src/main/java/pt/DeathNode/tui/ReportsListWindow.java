@@ -12,6 +12,7 @@ import pt.DeathNode.crypto.CryptoLib;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
+import pt.DeathNode.util.EndpointConfig;
 
 import javax.crypto.SecretKey;
 import java.io.InputStream;
@@ -20,7 +21,14 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Base64;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReportsListWindow extends BasicWindow {
@@ -198,10 +206,14 @@ public class ReportsListWindow extends BasicWindow {
 
     private FetchResult fetchReports() {
         try {
-            URL url = new URL("http://localhost:8080/reports");
+            URL url = new URL(EndpointConfig.getGatewayUrl() + "/api/reports");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Accept", "application/json");
+            String bearer = loadBearerToken(currentUser);
+            if (bearer != null) {
+                conn.setRequestProperty("Authorization", bearer);
+            }
             conn.setConnectTimeout(1500);
             conn.setReadTimeout(1500);
 
@@ -216,6 +228,11 @@ public class ReportsListWindow extends BasicWindow {
             SecureDocument[] docs = GSON.fromJson(json, SecureDocument[].class);
             if (docs == null || docs.length == 0) {
                 return new FetchResult(new ArrayList<>(), null);
+            }
+
+            String sr3Error = validateSr3(docs);
+            if (sr3Error != null) {
+                return new FetchResult(null, sanitizeSingleLine(sr3Error));
             }
 
             List<ReportItem> items = new ArrayList<>();
@@ -269,6 +286,101 @@ public class ReportsListWindow extends BasicWindow {
         } catch (Exception e) {
             return new FetchResult(null, sanitizeSingleLine("Error loading reports: " + e.getMessage()));
         }
+    }
+
+    private static String loadBearerToken(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        try {
+            Path tokenPath = Paths.get("keys", userId + ".token");
+            if (!Files.exists(tokenPath)) {
+                return null;
+            }
+            String tokenJson = Files.readString(tokenPath, StandardCharsets.UTF_8);
+            if (tokenJson == null || tokenJson.isBlank()) {
+                return null;
+            }
+            String tokenB64 = Base64.getEncoder().encodeToString(tokenJson.getBytes(StandardCharsets.UTF_8));
+            return "Bearer " + tokenB64;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String normalizePrevHash(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private static String validateSr3(SecureDocument[] docs) {
+        Map<String, List<SecureDocument>> bySigner = new HashMap<>();
+        for (SecureDocument d : docs) {
+            if (d == null) {
+                continue;
+            }
+            String signer = d.getSignerId();
+            if (signer == null) {
+                continue;
+            }
+            bySigner.computeIfAbsent(signer, k -> new ArrayList<>()).add(d);
+        }
+
+        for (Map.Entry<String, List<SecureDocument>> e : bySigner.entrySet()) {
+            String signer = e.getKey();
+            List<SecureDocument> list = e.getValue();
+            if (list == null || list.isEmpty()) {
+                continue;
+            }
+
+            boolean anySeq = false;
+            boolean anyMissingSeq = false;
+            for (SecureDocument d : list) {
+                if (d.getSequenceNumber() == null) {
+                    anyMissingSeq = true;
+                } else {
+                    anySeq = true;
+                }
+            }
+            if (!anySeq || anyMissingSeq) {
+                continue;
+            }
+
+            list.sort(Comparator.comparingLong(SecureDocument::getSequenceNumber));
+
+            long expectedSeq = 1L;
+            SecureDocument prev = null;
+            for (SecureDocument cur : list) {
+                long seq = cur.getSequenceNumber();
+                if (seq != expectedSeq) {
+                    return "SR3 violation for signer '" + signer + "': expected sequence_number=" + expectedSeq + " but got " + seq;
+                }
+
+                String prevHash = normalizePrevHash(cur.getPreviousHash());
+                if (prev == null) {
+                    if (prevHash != null) {
+                        return "SR3 violation for signer '" + signer + "': expected previous_hash to be null at sequence_number=1";
+                    }
+                } else {
+                    try {
+                        String expectedPrev = CryptoLib.computeChainHash(prev);
+                        if (prevHash == null || !expectedPrev.equals(prevHash)) {
+                            return "SR3 violation for signer '" + signer + "': previous_hash mismatch at sequence_number=" + seq;
+                        }
+                    } catch (Exception ex) {
+                        return "SR3 violation for signer '" + signer + "': failed computing previous hash";
+                    }
+                }
+
+                prev = cur;
+                expectedSeq++;
+            }
+        }
+
+        return null;
     }
 
     private void refreshReportsAsync() {

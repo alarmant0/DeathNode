@@ -3,6 +3,8 @@ package pt.DeathNode.auth;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import pt.DeathNode.crypto.KeyManager;
+import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.TlsConfig;
 
 import javax.crypto.SecretKey;
 import java.io.IOException;
@@ -25,7 +27,8 @@ public class ClientMain {
     public static void main(String[] args) throws Exception {
         String userId = null;
         String serverHost = "localhost";
-        int serverPort = 8080;
+        int serverPort = 9090;
+        String gatewayUrl = EndpointConfig.getGatewayUrl();
 
         for (int i = 0; i < args.length; i++) {
             if ("--user".equals(args[i]) && i + 1 < args.length) {
@@ -37,6 +40,13 @@ public class ClientMain {
             }
         }
 
+        if (serverHost != null && !serverHost.isBlank()) {
+            String scheme = gatewayUrl != null && gatewayUrl.trim().toLowerCase().startsWith("https://") ? "https" : "http";
+            gatewayUrl = scheme + "://" + serverHost + ":" + serverPort;
+        }
+
+        TlsConfig.installClientTlsFromEnvIfPresent();
+
         if (userId == null || userId.isBlank()) {
             System.err.println("Missing --user parameter");
             System.exit(1);
@@ -47,7 +57,7 @@ public class ClientMain {
 
         if (token == null || token.isExpired()) {
             System.out.println("No valid token for user '" + userId + "'. Requesting new one from server...");
-            token = requestTokenFromServer(userId, serverHost, serverPort);
+            token = requestTokenFromServer(userId, gatewayUrl);
             saveToken(userId, token);
             System.out.println("Received token for user '" + userId + "' valid until " + token.getExpiresAt());
         } else {
@@ -94,7 +104,7 @@ public class ClientMain {
         Files.writeString(tokenPath, json);
     }
 
-    private static AuthToken requestTokenFromServer(String userId, String host, int port) throws Exception {
+    private static AuthToken requestTokenFromServer(String userId, String gatewayUrl) throws Exception {
         PublicKey pubKey = KeyManager.loadPublicKey(userId);
         String base64Pub = Base64.getEncoder().encodeToString(pubKey.getEncoded());
 
@@ -105,7 +115,7 @@ public class ClientMain {
         String json = GSON.toJson(req);
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
 
-        URL url = new URL("http://" + host + ":" + port + "/join");
+        URL url = new URL(gatewayUrl + "/api/auth/join");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");

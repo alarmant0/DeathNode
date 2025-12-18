@@ -10,6 +10,8 @@ import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
 import pt.DeathNode.crypto.KeyManager;
+import pt.DeathNode.crypto.ChainStateStore;
+import pt.DeathNode.util.EndpointConfig;
 
 import javax.crypto.SecretKey;
 import java.net.HttpURLConnection;
@@ -19,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.PrivateKey;
+import java.util.Base64;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReportWindow extends BasicWindow {
@@ -238,7 +241,16 @@ public class ReportWindow extends BasicWindow {
                     SecretKey encKey = KeyManager.loadSymmetricKey(username);
                     PrivateKey signKey = KeyManager.loadPrivateKey(username);
 
-                    SecureDocument secDoc = CryptoLib.protect(report, encKey, signKey, username);
+                    ChainStateStore.ChainParams chainParams = ChainStateStore.nextParams(username);
+                    SecureDocument secDoc = CryptoLib.protect(
+                            report,
+                            encKey,
+                            signKey,
+                            username,
+                            chainParams.getSequenceNumber(),
+                            chainParams.getPreviousHash()
+                    );
+                    ChainStateStore.updateFromDocument(username, secDoc);
                     String secJson = secDoc.toJson();
 
                     Path outDir = Paths.get("db", "reports");
@@ -249,12 +261,16 @@ public class ReportWindow extends BasicWindow {
 
                     boolean posted = false;
                     try {
-                        URL url = new URL("http://localhost:8080/reports");
+                        URL url = new URL(EndpointConfig.getGatewayUrl() + "/api/reports");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                         conn.setConnectTimeout(1500);
                         conn.setReadTimeout(1500);
                         conn.setRequestMethod("POST");
                         conn.setRequestProperty("Content-Type", "application/json");
+                        String bearer = loadBearerToken(username);
+                        if (bearer != null) {
+                            conn.setRequestProperty("Authorization", bearer);
+                        }
                         conn.setDoOutput(true);
 
                         byte[] body = secJson.getBytes(StandardCharsets.UTF_8);
@@ -325,6 +341,26 @@ public class ReportWindow extends BasicWindow {
             return;
         }
         textGUI.getGUIThread().invokeLater(runnable);
+    }
+
+    private static String loadBearerToken(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        try {
+            Path tokenPath = Paths.get("keys", userId + ".token");
+            if (!Files.exists(tokenPath)) {
+                return null;
+            }
+            String tokenJson = Files.readString(tokenPath, StandardCharsets.UTF_8);
+            if (tokenJson == null || tokenJson.isBlank()) {
+                return null;
+            }
+            String tokenB64 = Base64.getEncoder().encodeToString(tokenJson.getBytes(StandardCharsets.UTF_8));
+            return "Bearer " + tokenB64;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void startAmbient(Label target) {

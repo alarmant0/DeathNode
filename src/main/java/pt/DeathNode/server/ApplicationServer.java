@@ -5,6 +5,9 @@ import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -14,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.PublicKey;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -24,22 +28,52 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 
+import pt.DeathNode.auth.AuthServerMain;
+import pt.DeathNode.auth.AuthToken;
+import pt.DeathNode.crypto.CryptoLib;
+import pt.DeathNode.crypto.KeyManager;
+import pt.DeathNode.crypto.SecureDocument;
+import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.TlsConfig;
+
 public class ApplicationServer {
 
     private static final String APP_SERVER_PORT = "9090";
-    private static final String AUTH_SERVER_URL = "http://localhost:8080";
+    private static final String AUTH_SERVER_URL = EndpointConfig.getAuthServerUrl();
     private static final String DB_URL = "jdbc:sqlite:db/deathnode.db";
     private static Connection DB_CONNECTION;
     private static final Gson GSON = new GsonBuilder().create();
-    private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
+    private static HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
     public static void main(String[] args) throws Exception {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 9090;
 
         initDatabase();
 
-        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+        TlsConfig.installClientTlsFromEnvIfPresent();
+        HTTP_CLIENT = HttpClient.newBuilder().sslContext(javax.net.ssl.SSLContext.getDefault()).build();
 
+        HttpServer server;
+        if (TlsConfig.isTlsEnabled()) {
+            javax.net.ssl.SSLContext sslContext = TlsConfig.buildSslContextFromEnv();
+            HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress(port), 0);
+            httpsServer.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+                @Override
+                public void configure(HttpsParameters params) {
+                    javax.net.ssl.SSLParameters sslParams = getSSLContext().getDefaultSSLParameters();
+                    params.setSSLParameters(sslParams);
+                    String require = System.getenv("DEATHNODE_TLS_REQUIRE_CLIENT_AUTH");
+                    if (require != null && require.trim().equalsIgnoreCase("true")) {
+                        params.setNeedClientAuth(true);
+                    }
+                }
+            });
+            server = httpsServer;
+        } else {
+            server = HttpServer.create(new InetSocketAddress(port), 0);
+        }
+
+        server.createContext("/api/auth/join", new AuthProxyHandler());
         server.createContext("/api/auth/login", new AuthProxyHandler());
         server.createContext("/api/auth/register", new AuthProxyHandler());
         server.createContext("/api/auth/tokens/create", new AuthProxyHandler());
@@ -201,12 +235,26 @@ public class ApplicationServer {
             String method = exchange.getRequestMethod();
 
             try {
-                if ("POST".equalsIgnoreCase(method)) {
-                    handleStoreReport(exchange);
-                } else if ("GET".equalsIgnoreCase(method)) {
-                    handleListReports(exchange);
-                } else {
+                if (!"POST".equalsIgnoreCase(method) && !"GET".equalsIgnoreCase(method)) {
                     exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+
+                String reporter = extractReporterFromToken(exchange);
+                if (reporter == null) {
+                    String error = "{\"error\":\"Unauthorized\"}";
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(401, error.getBytes(StandardCharsets.UTF_8).length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(error.getBytes(StandardCharsets.UTF_8));
+                    }
+                    return;
+                }
+
+                if ("POST".equalsIgnoreCase(method)) {
+                    handleStoreReport(exchange, reporter);
+                } else {
+                    handleListReports(exchange);
                 }
             } catch (Exception e) {
                 String error = "{\"error\":\"" + e.getMessage() + "\"}";
@@ -217,76 +265,78 @@ public class ApplicationServer {
             }
         }
 
-        private void handleStoreReport(HttpExchange exchange) throws Exception {
+        private void handleStoreReport(HttpExchange exchange, String reporter) throws Exception {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
-            String reporter = extractReporterFromToken(exchange);
-            if (reporter == null) {
-                String error = "{\"error\":\"Unauthorized\"}";
-                exchange.sendResponseHeaders(401, error.getBytes().length);
+            SecureDocument doc = GSON.fromJson(body, SecureDocument.class);
+            if (doc == null || doc.getSignerId() == null) {
+                String error = "{\"error\":\"Invalid report payload\"}";
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(400, error.getBytes(StandardCharsets.UTF_8).length);
                 try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(error.getBytes());
+                    os.write(error.getBytes(StandardCharsets.UTF_8));
                 }
                 return;
             }
 
-            try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
-                    "INSERT INTO reports (reporter, created_at, document_json) VALUES (?, ?, ?)")) {
-                stmt.setString(1, reporter);
-                stmt.setString(2, Instant.now().toString());
-                stmt.setString(3, body);
-                stmt.executeUpdate();
+            if (!reporter.equals(doc.getSignerId())) {
+                String error = "{\"error\":\"Signer mismatch\"}";
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(400, error.getBytes(StandardCharsets.UTF_8).length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(error.getBytes(StandardCharsets.UTF_8));
+                }
+                return;
             }
 
-            String response = "{\"status\":\"success\"}";
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, response.getBytes().length);
+            URI authUri = URI.create(AUTH_SERVER_URL + "/reports");
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(authUri)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            exchange.getResponseHeaders().set("Content-Type", response.headers().firstValue("Content-Type").orElse("text/plain"));
+            exchange.sendResponseHeaders(response.statusCode(), response.body().length);
             try (OutputStream os = exchange.getResponseBody()) {
-                os.write(response.getBytes());
+                os.write(response.body());
             }
         }
-
         private void handleListReports(HttpExchange exchange) throws Exception {
-            String reporter = extractReporterFromToken(exchange);
-            if (reporter == null) {
-                String error = "{\"error\":\"Unauthorized\"}";
-                exchange.sendResponseHeaders(401, error.getBytes().length);
-                try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(error.getBytes());
-                }
-                return;
-            }
+            URI authUri = URI.create(AUTH_SERVER_URL + "/reports");
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(authUri)
+                    .GET()
+                    .build();
 
-            StringBuilder json = new StringBuilder("[");
-            try (Statement stmt = DB_CONNECTION.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT * FROM reports WHERE reporter = '" + reporter + "' ORDER BY created_at DESC")) {
-
-                boolean first = true;
-                while (rs.next()) {
-                    if (!first) json.append(",");
-                    json.append("{");
-                    json.append("\"id\":").append(rs.getInt("id")).append(",");
-                    json.append("\"reporter\":\"").append(rs.getString("reporter")).append("\",");
-                    json.append("\"created_at\":\"").append(rs.getString("created_at")).append("\",");
-                    json.append("\"document\":").append(rs.getString("document_json"));
-                    json.append("}");
-                    first = false;
-                }
-            }
-            json.append("]");
-
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, json.length());
+            HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            exchange.getResponseHeaders().set("Content-Type", response.headers().firstValue("Content-Type").orElse("application/json"));
+            exchange.sendResponseHeaders(response.statusCode(), response.body().length);
             try (OutputStream os = exchange.getResponseBody()) {
-                os.write(json.toString().getBytes());
+                os.write(response.body());
             }
         }
 
         private String extractReporterFromToken(HttpExchange exchange) {
             String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                String token = authHeader.substring(7);
-                return "alice";
+                String tokenB64 = authHeader.substring(7).trim();
+                if (tokenB64.isEmpty()) {
+                    return null;
+                }
+                try {
+                    byte[] tokenJsonBytes = Base64.getDecoder().decode(tokenB64);
+                    String tokenJson = new String(tokenJsonBytes, StandardCharsets.UTF_8);
+                    AuthToken token = GSON.fromJson(tokenJson, AuthToken.class);
+                    PublicKey serverPublicKey = KeyManager.loadPublicKey("server");
+                    if (!AuthServerMain.verifyToken(token, serverPublicKey)) {
+                        return null;
+                    }
+                    return token.getPseudonym();
+                } catch (Exception e) {
+                    return null;
+                }
             }
             return null;
         }
