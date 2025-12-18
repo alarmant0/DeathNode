@@ -6,4 +6,4 @@ NODE_PASS="${NODE_PASS:-alice12}"
 export DEATHNODE_TLS_TRUSTSTORE_PATH="$HOME/certs/truststore.p12"
 export DEATHNODE_TLS_TRUSTSTORE_PASSWORD="$NODE_PASS"
 
-mvn exec:java
+mvn -DskipTests compile exec:java
