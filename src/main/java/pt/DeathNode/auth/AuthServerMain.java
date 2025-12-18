@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
+import pt.DeathNode.util.SimpleFileLogger;
 import pt.DeathNode.util.TlsConfig;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -53,6 +54,8 @@ public class AuthServerMain {
     private static Connection DB_CONNECTION;
     private static final ConcurrentHashMap<String, InvitationToken> tokenCache = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> authorizedUsers = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Boolean> enrolledPseudonyms = new ConcurrentHashMap<>();
+    private static final SimpleFileLogger LOG = new SimpleFileLogger("logs/auth.log");
 
     public static void main(String[] args) throws Exception {
         int port = 8080;
@@ -96,8 +99,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /join -> 405");
                     return;
                 }
                 byte[] body = exchange.getRequestBody().readAllBytes();
@@ -111,10 +116,54 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /join -> 400 invalid_request");
+                    return;
+                }
+
+                String pseudonym = req.getPseudonym() == null ? null : req.getPseudonym().trim();
+                if (pseudonym == null || pseudonym.isEmpty()) {
+                    String msg = "Invalid join request";
+                    byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                    LOG.info(exchange.getRemoteAddress() + " POST /join -> 400 empty_pseudonym");
                     return;
                 }
 
                 try {
+                    if (!isEnrolledPseudonym(pseudonym)) {
+                        String tokenId = req.getInvitationTokenId() == null ? null : req.getInvitationTokenId().trim();
+                        if (tokenId == null || tokenId.isEmpty()) {
+                            String msg = "Invitation token required";
+                            byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                            exchange.sendResponseHeaders(403, respBytes.length);
+                            try (OutputStream os = exchange.getResponseBody()) {
+                                os.write(respBytes);
+                            }
+                            LOG.info(exchange.getRemoteAddress() + " POST /join -> 403 invite_required pseudonym=" + pseudonym);
+                            return;
+                        }
+
+                        InvitationToken invite = tokenCache.get(tokenId);
+                        boolean validInvite = invite != null && invite.isValid();
+                        if (!validInvite) {
+                            String msg = "Invalid or expired invitation token";
+                            byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                            exchange.sendResponseHeaders(403, respBytes.length);
+                            try (OutputStream os = exchange.getResponseBody()) {
+                                os.write(respBytes);
+                            }
+                            LOG.info(exchange.getRemoteAddress() + " POST /join -> 403 invite_invalid pseudonym=" + pseudonym);
+                            return;
+                        }
+
+                        invite.useToken();
+                        saveTokenToDatabase(invite);
+                        enrollPseudonym(pseudonym);
+                    }
+
                     AuthToken token = createToken(req, privateKey, finalTokenValidityMinutes);
                     String respJson = GSON.toJson(token);
                     byte[] respBytes = respJson.getBytes(StandardCharsets.UTF_8);
@@ -123,7 +172,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /join -> 200 pseudonym=" + pseudonym);
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " POST /join -> 500 pseudonym=" + pseudonym, e);
                     String msg = "Error: " + e.getMessage();
                     byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -138,8 +189,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/create -> 405");
                     return;
                 }
 
@@ -154,6 +207,7 @@ public class AuthServerMain {
                         try (OutputStream os = exchange.getResponseBody()) {
                             os.write(respBytes);
                         }
+                        LOG.info(exchange.getRemoteAddress() + " POST /tokens/create -> 403 issuer=" + req.getIssuerId());
                         return;
                     }
                     
@@ -174,7 +228,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /tokens/create -> 200 issuer=" + token.getIssuerId() + " tokenId=" + token.getTokenId());
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " POST /tokens/create -> 500", e);
                     String response = "{\"error\":\"" + e.getMessage() + "\"}";
                     byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -189,8 +245,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate");
                 if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /tokens/validate -> 405");
                     return;
                 }
 
@@ -214,7 +272,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " POST /tokens/validate -> 200 tokenId=" + req.getTokenId() + " valid=" + valid + " consume=" + req.isConsume());
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " POST /tokens/validate -> 500", e);
                     String response = "{\"error\":\"" + e.getMessage() + "\"}";
                     byte[] respBytes = response.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -229,16 +289,21 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /reports");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /reports");
                 String method = exchange.getRequestMethod();
                 try {
                     if ("POST".equalsIgnoreCase(method)) {
                         handleStoreReport(exchange);
+                        LOG.info(exchange.getRemoteAddress() + " POST /reports -> 200");
                     } else if ("GET".equalsIgnoreCase(method)) {
                         handleListReports(exchange);
+                        LOG.info(exchange.getRemoteAddress() + " GET /reports -> 200");
                     } else {
                         exchange.sendResponseHeaders(405, -1);
+                        LOG.info(exchange.getRemoteAddress() + " " + method + " /reports -> 405");
                     }
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " " + method + " /reports -> 500", e);
                     String msg = "Error: " + e.getMessage();
                     byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -253,8 +318,10 @@ public class AuthServerMain {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 System.out.println("[AUTH] " + exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints");
+                LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints");
                 if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                     exchange.sendResponseHeaders(405, -1);
+                    LOG.info(exchange.getRemoteAddress() + " " + exchange.getRequestMethod() + " /checkpoints -> 405");
                     return;
                 }
                 try {
@@ -269,7 +336,9 @@ public class AuthServerMain {
                     try (OutputStream os = exchange.getResponseBody()) {
                         os.write(respBytes);
                     }
+                    LOG.info(exchange.getRemoteAddress() + " GET /checkpoints -> 200 signer=" + signer);
                 } catch (Exception e) {
+                    LOG.error(exchange.getRemoteAddress() + " GET /checkpoints -> 500", e);
                     String msg = "Error: " + e.getMessage();
                     byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(500, respBytes.length);
@@ -282,6 +351,7 @@ public class AuthServerMain {
 
         server.start();
         System.out.println("[AUTH] Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
+        LOG.info("Listening on port " + port + " (TLS=" + TlsConfig.isTlsEnabled() + ")");
     }
 
     public static boolean verifyCheckpoint(SignedCheckpoint cp, PublicKey serverPublicKey) {
@@ -441,6 +511,14 @@ public class AuthServerMain {
         }
 
         try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "CREATE TABLE IF NOT EXISTS enrolled_pseudonyms (" +
+                        "pseudonym TEXT PRIMARY KEY," +
+                        "enrolled_at TEXT NOT NULL" +
+                        ")")) {
+            stmt.executeUpdate();
+        }
+
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS users (" +
                         "username TEXT PRIMARY KEY CHECK (length(username) >= 3)," +
                         "password_hash TEXT NOT NULL CHECK (length(password_hash) >= 8)," +
@@ -452,10 +530,59 @@ public class AuthServerMain {
         }
 
         loadUsersFromDatabase();
+        loadEnrollmentsFromDatabase();
+
+        try {
+            loadTokensFromDatabase();
+        } catch (SQLException ignored) {
+        }
 
         if (authorizedUsers.isEmpty()) {
             addDefaultUsers();
         }
+
+        if (enrolledPseudonyms.isEmpty()) {
+            for (String user : authorizedUsers.keySet()) {
+                try {
+                    enrollPseudonym(user);
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+    }
+
+    private static void loadEnrollmentsFromDatabase() throws SQLException {
+        try (Statement stmt = DB_CONNECTION.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT pseudonym FROM enrolled_pseudonyms")) {
+            while (rs.next()) {
+                String p = rs.getString("pseudonym");
+                if (p != null && !p.isBlank()) {
+                    enrolledPseudonyms.put(p, true);
+                }
+            }
+        }
+    }
+
+    private static void enrollPseudonym(String pseudonym) throws SQLException {
+        String p = pseudonym == null ? null : pseudonym.trim();
+        if (p == null || p.isEmpty()) {
+            return;
+        }
+
+        enrolledPseudonyms.put(p, true);
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "INSERT OR IGNORE INTO enrolled_pseudonyms (pseudonym, enrolled_at) VALUES (?, ?)")) {
+            stmt.setString(1, p);
+            stmt.setString(2, Instant.now().toString());
+            stmt.executeUpdate();
+        }
+    }
+
+    private static boolean isEnrolledPseudonym(String pseudonym) {
+        if (pseudonym == null) {
+            return false;
+        }
+        return enrolledPseudonyms.containsKey(pseudonym.trim());
     }
 
     private static void loadTokensFromDatabase() throws SQLException {

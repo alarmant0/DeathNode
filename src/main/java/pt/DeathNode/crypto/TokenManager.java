@@ -16,7 +16,16 @@ public class TokenManager {
     private static HttpClient client = HttpClient.newHttpClient();
     private static final Gson gson = new Gson();
 
+    private static synchronized void ensureTlsClient() {
+        try {
+            TlsConfig.installClientTlsFromEnvIfPresent();
+            client = HttpClient.newBuilder().sslContext(javax.net.ssl.SSLContext.getDefault()).build();
+        } catch (Exception ignored) {
+        }
+    }
+
     public static InvitationToken createToken(String issuerId, int maxUses, long validityHours, String description) throws Exception {
+        ensureTlsClient();
         TokenRequest request = new TokenRequest();
         request.setIssuerId(issuerId);
         request.setMaxUses(maxUses);
@@ -39,6 +48,7 @@ public class TokenManager {
     }
 
     public static TokenValidationResponse validateToken(String tokenId, boolean consume) throws Exception {
+        ensureTlsClient();
         TokenValidationRequest request = new TokenValidationRequest(tokenId, consume);
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
@@ -57,8 +67,7 @@ public class TokenManager {
     }
 
     public static void main(String[] args) throws Exception {
-        TlsConfig.installClientTlsFromEnvIfPresent();
-        client = HttpClient.newBuilder().sslContext(javax.net.ssl.SSLContext.getDefault()).build();
+        ensureTlsClient();
 
         if (args.length < 4) {
             System.out.println("Usage: TokenManager <issuerId> <maxUses> <validityHours> <description>");

@@ -680,11 +680,26 @@ public class Main {
         JoinRequest req = new JoinRequest();
         req.setPseudonym(userId);
         req.setClientPublicKey(base64Pub);
+        return requestTokenFromServer(req, userId);
+    }
 
+    private static AuthToken requestTokenFromServer(String userId, String invitationTokenId) throws Exception {
+        PublicKey pubKey = KeyManager.loadPublicKey(userId);
+        String base64Pub = Base64.getEncoder().encodeToString(pubKey.getEncoded());
+
+        JoinRequest req = new JoinRequest();
+        req.setPseudonym(userId);
+        req.setClientPublicKey(base64Pub);
+        req.setInvitationTokenId(invitationTokenId);
+
+        return requestTokenFromServer(req, userId);
+    }
+
+    private static AuthToken requestTokenFromServer(JoinRequest req, String userIdForLog) throws Exception {
         String json = GSON.toJson(req);
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
 
-        LOG.info("Requesting /api/auth/join for user=" + userId + " to " + GATEWAY_URL);
+        LOG.info("Requesting /api/auth/join for user=" + userIdForLog + " to " + GATEWAY_URL);
         URL url = new URL(GATEWAY_URL + "/api/auth/join");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
@@ -834,7 +849,7 @@ public class Main {
                 String error = null;
                 boolean ok = false;
                 try {
-                    TokenValidationResponse response = TokenManager.validateToken(tokenId, true);
+                    TokenValidationResponse response = TokenManager.validateToken(tokenId, false);
                     if (!response.isValid()) {
                         error = "Invalid or expired token!";
                         return;
@@ -843,7 +858,7 @@ public class Main {
                     createLocalUser(username, password);
                     ensureUserKeys(username);
 
-                    AuthToken authToken = requestTokenFromServer(username);
+                    AuthToken authToken = requestTokenFromServer(username, tokenId);
                     saveToken(username, authToken);
 
                     ok = true;
