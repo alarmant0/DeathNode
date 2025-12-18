@@ -8,4 +8,4 @@ export DEATHNODE_TLS_KEYSTORE_PASSWORD="$GATEWAY_PASS"
 export DEATHNODE_TLS_TRUSTSTORE_PATH="$HOME/certs/truststore.p12"
 export DEATHNODE_TLS_TRUSTSTORE_PASSWORD="$GATEWAY_PASS"
 
-mvn -Pserver exec:java
+mvn -DskipTests compile -Pserver exec:java
