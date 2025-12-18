@@ -2,6 +2,8 @@ package pt.DeathNode.crypto;
 
 import com.google.gson.Gson;
 import pt.DeathNode.auth.*;
+import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.TlsConfig;
 
 import java.io.IOException;
 import java.net.URI;
@@ -10,8 +12,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 public class TokenManager {
-    private static final String AUTH_SERVER_URL = "http://localhost:8080";
-    private static final HttpClient client = HttpClient.newHttpClient();
+    private static final String GATEWAY_URL = EndpointConfig.getGatewayUrl();
+    private static HttpClient client = HttpClient.newHttpClient();
     private static final Gson gson = new Gson();
 
     public static InvitationToken createToken(String issuerId, int maxUses, long validityHours, String description) throws Exception {
@@ -22,7 +24,7 @@ public class TokenManager {
         request.setDescription(description);
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(AUTH_SERVER_URL + "/tokens/create"))
+                .uri(URI.create(GATEWAY_URL + "/api/auth/tokens/create"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)))
                 .build();
@@ -40,7 +42,7 @@ public class TokenManager {
         TokenValidationRequest request = new TokenValidationRequest(tokenId, consume);
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(AUTH_SERVER_URL + "/tokens/validate"))
+                .uri(URI.create(GATEWAY_URL + "/api/auth/tokens/validate"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(request)))
                 .build();
@@ -55,6 +57,9 @@ public class TokenManager {
     }
 
     public static void main(String[] args) throws Exception {
+        TlsConfig.installClientTlsFromEnvIfPresent();
+        client = HttpClient.newBuilder().sslContext(javax.net.ssl.SSLContext.getDefault()).build();
+
         if (args.length < 4) {
             System.out.println("Usage: TokenManager <issuerId> <maxUses> <validityHours> <description>");
             return;

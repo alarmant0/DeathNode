@@ -22,6 +22,8 @@ import pt.DeathNode.auth.TokenValidationResponse;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.TokenManager;
 import pt.DeathNode.tui.ReportWindow;
+import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.TlsConfig;
 
 import javax.crypto.SecretKey;
 import javax.imageio.ImageIO;
@@ -62,8 +64,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class Main {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String AUTH_SERVER_HOST = "localhost";
-    private static final int AUTH_SERVER_PORT = 8080;
+    private static final String GATEWAY_URL = EndpointConfig.getGatewayUrl();
     private static final String DB_URL = "jdbc:sqlite:db/deathnode.db";
     private static final SimpleTheme DEATH_THEME = buildTheme();
 
@@ -147,6 +148,11 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
+        try {
+            TlsConfig.installClientTlsFromEnvIfPresent();
+        } catch (Exception ignored) {
+        }
+
         DefaultTerminalFactory terminalFactory = new DefaultTerminalFactory()
                 .setPreferTerminalEmulator(true)
                 .setTerminalEmulatorTitle("T27 :: DEATHNODE")
@@ -492,7 +498,7 @@ public class Main {
                             msgLabel.setText("Registering user on server...");
                         }
                     });
-                    token = requestTokenFromServer(userId, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
+                    token = requestTokenFromServer(userId);
                     saveToken(userId, token);
                 }
                 ok = true;
@@ -657,7 +663,7 @@ public class Main {
         Files.write(tokenPath, json.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static AuthToken requestTokenFromServer(String userId, String host, int port) throws Exception {
+    private static AuthToken requestTokenFromServer(String userId) throws Exception {
         PublicKey pubKey = KeyManager.loadPublicKey(userId);
         String base64Pub = Base64.getEncoder().encodeToString(pubKey.getEncoded());
 
@@ -668,7 +674,7 @@ public class Main {
         String json = GSON.toJson(req);
         byte[] body = json.getBytes(StandardCharsets.UTF_8);
 
-        URL url = new URL("http://" + host + ":" + port + "/join");
+        URL url = new URL(GATEWAY_URL + "/api/auth/join");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
@@ -825,7 +831,7 @@ public class Main {
                     createLocalUser(username, password);
                     ensureUserKeys(username);
 
-                    AuthToken authToken = requestTokenFromServer(username, AUTH_SERVER_HOST, AUTH_SERVER_PORT);
+                    AuthToken authToken = requestTokenFromServer(username);
                     saveToken(username, authToken);
 
                     ok = true;

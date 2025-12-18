@@ -12,6 +12,7 @@ import pt.DeathNode.crypto.CryptoLib;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
+import pt.DeathNode.util.EndpointConfig;
 
 import javax.crypto.SecretKey;
 import java.io.InputStream;
@@ -20,10 +21,14 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Base64;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReportsListWindow extends BasicWindow {
@@ -201,10 +206,14 @@ public class ReportsListWindow extends BasicWindow {
 
     private FetchResult fetchReports() {
         try {
-            URL url = new URL("http://localhost:8080/reports");
+            URL url = new URL(EndpointConfig.getGatewayUrl() + "/api/reports");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
             conn.setRequestProperty("Accept", "application/json");
+            String bearer = loadBearerToken(currentUser);
+            if (bearer != null) {
+                conn.setRequestProperty("Authorization", bearer);
+            }
             conn.setConnectTimeout(1500);
             conn.setReadTimeout(1500);
 
@@ -276,6 +285,26 @@ public class ReportsListWindow extends BasicWindow {
             return new FetchResult(items, null);
         } catch (Exception e) {
             return new FetchResult(null, sanitizeSingleLine("Error loading reports: " + e.getMessage()));
+        }
+    }
+
+    private static String loadBearerToken(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        try {
+            Path tokenPath = Paths.get("keys", userId + ".token");
+            if (!Files.exists(tokenPath)) {
+                return null;
+            }
+            String tokenJson = Files.readString(tokenPath, StandardCharsets.UTF_8);
+            if (tokenJson == null || tokenJson.isBlank()) {
+                return null;
+            }
+            String tokenB64 = Base64.getEncoder().encodeToString(tokenJson.getBytes(StandardCharsets.UTF_8));
+            return "Bearer " + tokenB64;
+        } catch (Exception e) {
+            return null;
         }
     }
 

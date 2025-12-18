@@ -5,10 +5,14 @@ import com.google.gson.GsonBuilder;
 import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.crypto.CryptoLib;
+import pt.DeathNode.util.TlsConfig;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -63,7 +67,25 @@ public class AuthServerMain {
         initDatabase();
         PrivateKey privateKey = KeyManager.loadPrivateKey(SERVER_KEY_NAME);
 
-        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+        HttpServer server;
+        if (TlsConfig.isTlsEnabled()) {
+            javax.net.ssl.SSLContext sslContext = TlsConfig.buildSslContextFromEnv();
+            HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress(port), 0);
+            httpsServer.setHttpsConfigurator(new HttpsConfigurator(sslContext) {
+                @Override
+                public void configure(HttpsParameters params) {
+                    javax.net.ssl.SSLParameters sslParams = getSSLContext().getDefaultSSLParameters();
+                    params.setSSLParameters(sslParams);
+                    String require = System.getenv("DEATHNODE_TLS_REQUIRE_CLIENT_AUTH");
+                    if (require != null && require.trim().equalsIgnoreCase("true")) {
+                        params.setNeedClientAuth(true);
+                    }
+                }
+            });
+            server = httpsServer;
+        } else {
+            server = HttpServer.create(new InetSocketAddress(port), 0);
+        }
         long finalTokenValidityMinutes = tokenValidityMinutes;
 
         server.createContext("/join", new HttpHandler() {

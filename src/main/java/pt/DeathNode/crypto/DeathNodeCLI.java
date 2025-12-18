@@ -9,12 +9,21 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.Base64;
+
+import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.util.TlsConfig;
 
 public class DeathNodeCLI {
 
     private static final String TOOL_NAME = "deathnode";
 
     public static void main(String[] args) {
+        try {
+            TlsConfig.installClientTlsFromEnvIfPresent();
+        } catch (Exception ignored) {
+        }
+
         if (args.length == 0) {
             printHelp();
             return;
@@ -272,10 +281,14 @@ public class DeathNodeCLI {
         Files.writeString(Paths.get(outputFile), secJson, StandardCharsets.UTF_8);
 
         try {
-            URL url = new URL("http://localhost:8080/reports");
+            URL url = new URL(EndpointConfig.getGatewayUrl() + "/api/reports");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            String bearer = loadBearerToken(userId);
+            if (bearer != null) {
+                conn.setRequestProperty("Authorization", bearer);
+            }
             conn.setDoOutput(true);
 
             byte[] body = secJson.getBytes(StandardCharsets.UTF_8);
@@ -295,5 +308,25 @@ public class DeathNodeCLI {
         System.out.println("  User:   " + userId);
         System.out.println("  File:   " + outputFile);
         System.out.println("  ID:     " + report.getReportId());
+    }
+
+    private static String loadBearerToken(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        try {
+            Path tokenPath = Paths.get("keys", userId + ".token");
+            if (!Files.exists(tokenPath)) {
+                return null;
+            }
+            String tokenJson = Files.readString(tokenPath, StandardCharsets.UTF_8);
+            if (tokenJson == null || tokenJson.isBlank()) {
+                return null;
+            }
+            String tokenB64 = Base64.getEncoder().encodeToString(tokenJson.getBytes(StandardCharsets.UTF_8));
+            return "Bearer " + tokenB64;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
