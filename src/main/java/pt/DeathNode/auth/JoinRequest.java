@@ -4,6 +4,7 @@ public class JoinRequest {
 
     private String pseudonym;
     private String clientPublicKey;
+    private String invitationTokenId;
 
     public String getPseudonym() {
         return pseudonym;
@@ -19,5 +20,13 @@ public class JoinRequest {
 
     public void setClientPublicKey(String clientPublicKey) {
         this.clientPublicKey = clientPublicKey;
+    }
+
+    public String getInvitationTokenId() {
+        return invitationTokenId;
+    }
+
+    public void setInvitationTokenId(String invitationTokenId) {
+        this.invitationTokenId = invitationTokenId;
     }
 }

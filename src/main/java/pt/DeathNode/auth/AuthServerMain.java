@@ -53,6 +53,7 @@ public class AuthServerMain {
     private static Connection DB_CONNECTION;
     private static final ConcurrentHashMap<String, InvitationToken> tokenCache = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> authorizedUsers = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Boolean> enrolledPseudonyms = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws Exception {
         int port = 8080;
@@ -114,7 +115,47 @@ public class AuthServerMain {
                     return;
                 }
 
+                String pseudonym = req.getPseudonym() == null ? null : req.getPseudonym().trim();
+                if (pseudonym == null || pseudonym.isEmpty()) {
+                    String msg = "Invalid join request";
+                    byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(400, respBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(respBytes);
+                    }
+                    return;
+                }
+
                 try {
+                    if (!isEnrolledPseudonym(pseudonym)) {
+                        String tokenId = req.getInvitationTokenId() == null ? null : req.getInvitationTokenId().trim();
+                        if (tokenId == null || tokenId.isEmpty()) {
+                            String msg = "Invitation token required";
+                            byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                            exchange.sendResponseHeaders(403, respBytes.length);
+                            try (OutputStream os = exchange.getResponseBody()) {
+                                os.write(respBytes);
+                            }
+                            return;
+                        }
+
+                        InvitationToken invite = tokenCache.get(tokenId);
+                        boolean validInvite = invite != null && invite.isValid();
+                        if (!validInvite) {
+                            String msg = "Invalid or expired invitation token";
+                            byte[] respBytes = msg.getBytes(StandardCharsets.UTF_8);
+                            exchange.sendResponseHeaders(403, respBytes.length);
+                            try (OutputStream os = exchange.getResponseBody()) {
+                                os.write(respBytes);
+                            }
+                            return;
+                        }
+
+                        invite.useToken();
+                        saveTokenToDatabase(invite);
+                        enrollPseudonym(pseudonym);
+                    }
+
                     AuthToken token = createToken(req, privateKey, finalTokenValidityMinutes);
                     String respJson = GSON.toJson(token);
                     byte[] respBytes = respJson.getBytes(StandardCharsets.UTF_8);
@@ -441,6 +482,14 @@ public class AuthServerMain {
         }
 
         try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "CREATE TABLE IF NOT EXISTS enrolled_pseudonyms (" +
+                        "pseudonym TEXT PRIMARY KEY," +
+                        "enrolled_at TEXT NOT NULL" +
+                        ")")) {
+            stmt.executeUpdate();
+        }
+
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS users (" +
                         "username TEXT PRIMARY KEY CHECK (length(username) >= 3)," +
                         "password_hash TEXT NOT NULL CHECK (length(password_hash) >= 8)," +
@@ -452,10 +501,59 @@ public class AuthServerMain {
         }
 
         loadUsersFromDatabase();
+        loadEnrollmentsFromDatabase();
+
+        try {
+            loadTokensFromDatabase();
+        } catch (SQLException ignored) {
+        }
 
         if (authorizedUsers.isEmpty()) {
             addDefaultUsers();
         }
+
+        if (enrolledPseudonyms.isEmpty()) {
+            for (String user : authorizedUsers.keySet()) {
+                try {
+                    enrollPseudonym(user);
+                } catch (SQLException ignored) {
+                }
+            }
+        }
+    }
+
+    private static void loadEnrollmentsFromDatabase() throws SQLException {
+        try (Statement stmt = DB_CONNECTION.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT pseudonym FROM enrolled_pseudonyms")) {
+            while (rs.next()) {
+                String p = rs.getString("pseudonym");
+                if (p != null && !p.isBlank()) {
+                    enrolledPseudonyms.put(p, true);
+                }
+            }
+        }
+    }
+
+    private static void enrollPseudonym(String pseudonym) throws SQLException {
+        String p = pseudonym == null ? null : pseudonym.trim();
+        if (p == null || p.isEmpty()) {
+            return;
+        }
+
+        enrolledPseudonyms.put(p, true);
+        try (PreparedStatement stmt = DB_CONNECTION.prepareStatement(
+                "INSERT OR IGNORE INTO enrolled_pseudonyms (pseudonym, enrolled_at) VALUES (?, ?)")) {
+            stmt.setString(1, p);
+            stmt.setString(2, Instant.now().toString());
+            stmt.executeUpdate();
+        }
+    }
+
+    private static boolean isEnrolledPseudonym(String pseudonym) {
+        if (pseudonym == null) {
+            return false;
+        }
+        return enrolledPseudonyms.containsKey(pseudonym.trim());
     }
 
     private static void loadTokensFromDatabase() throws SQLException {
