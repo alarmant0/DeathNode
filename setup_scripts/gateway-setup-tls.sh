@@ -9,6 +9,12 @@ CA_PASS="${CA_PASS:-capass123}"
 
 mkdir -p "$HOME/certs"
 
+rm -f \
+  "$HOME/certs/gateway.p12" \
+  "$HOME/certs/gateway.csr" \
+  "$HOME/certs/gateway-signed.crt" \
+  >/dev/null 2>&1 || true
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CA_KS="$ROOT_DIR/certs/ca/ca.p12"
 CA_CRT="$ROOT_DIR/certs/ca/ca.crt"
