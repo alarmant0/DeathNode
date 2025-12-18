@@ -1,7 +1,5 @@
 # CXX DeathNode / ChainOfProduct / CivicEcho Project Read Me
 
-<!-- this is an instruction line; after you follow the instruction, delete the corresponding line. Do the same for all instruction lines! -->
-
 *(replace CXX above with group identifier, for example, A07 ou T22)*
 
 *(keep only your scenario name and delete the other names)*
