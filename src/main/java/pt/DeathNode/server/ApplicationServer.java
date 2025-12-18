@@ -104,6 +104,46 @@ public class ApplicationServer {
                     "document_json TEXT NOT NULL" +
                     ")");
         }
+
+        try (Statement stmt = DB_CONNECTION.createStatement()) {
+            stmt.execute("CREATE TABLE IF NOT EXISTS users (" +
+                    "username TEXT PRIMARY KEY," +
+                    "password_hash TEXT NOT NULL," +
+                    "active INTEGER NOT NULL DEFAULT 1" +
+                    ")");
+        }
+
+        try {
+            seedUserIfMissing("alice", "alice");
+            seedUserIfMissing("bob", "bob");
+        } catch (Exception e) {
+            throw new SQLException("Failed seeding default users", e);
+        }
+    }
+
+    private static void seedUserIfMissing(String username, String password) throws Exception {
+        String existsSql = "SELECT 1 FROM users WHERE username = ?";
+        try (PreparedStatement ps = DB_CONNECTION.prepareStatement(existsSql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return;
+                }
+            }
+        }
+
+        String insertSql = "INSERT INTO users(username, password_hash, active) VALUES(?, ?, 1)";
+        try (PreparedStatement ps = DB_CONNECTION.prepareStatement(insertSql)) {
+            ps.setString(1, username);
+            ps.setString(2, hashPassword(password));
+            ps.executeUpdate();
+        }
+    }
+
+    private static String hashPassword(String password) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] hash = md.digest(password.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(hash);
     }
 
     static class AuthProxyHandler implements HttpHandler {
@@ -215,18 +255,12 @@ public class ApplicationServer {
 
                     if (rs.next()) {
                         String storedHash = rs.getString("password_hash");
-                        String inputHash = hashPassword(password);
+                        String inputHash = ApplicationServer.hashPassword(password);
                         return storedHash.equals(inputHash);
                     }
                     return false;
                 }
             }
-        }
-
-        private String hashPassword(String password) throws Exception {
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(password.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(hash);
         }
     }
 
