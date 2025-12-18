@@ -351,7 +351,10 @@ public class ReportWindow extends BasicWindow {
                     Button ok = new Button("OK", dialog::close);
                     ok.setRenderer(new SolidFocusButtonRenderer());
                     panel.addComponent(ok);
-                    dialog.setComponent(Borders.doubleLine(panel));
+
+                    Border border = Borders.doubleLine();
+                    border.setComponent(panel);
+                    dialog.setComponent(border);
 
                     textGUI.addWindowAndWait(dialog);
                     inviteBtn.setEnabled(true);
