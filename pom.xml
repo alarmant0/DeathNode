@@ -127,7 +127,30 @@
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
                         <configuration>
+                            <mainClass>pt.DeathNode.server.ApplicationServer</mainClass>
+                            <arguments>
+                                <argument>443</argument>
+                            </arguments>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Profile to run the Auth server -->
+        <profile>
+            <id>auth</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <configuration>
                             <mainClass>pt.DeathNode.auth.AuthServerMain</mainClass>
+                            <arguments>
+                                <argument>--port</argument>
+                                <argument>443</argument>
+                            </arguments>
                         </configuration>
                     </plugin>
                 </plugins>
@@ -200,6 +223,9 @@
                         <artifactId>exec-maven-plugin</artifactId>
                         <configuration>
                             <mainClass>pt.DeathNode.server.ApplicationServer</mainClass>
+                            <arguments>
+                                <argument>443</argument>
+                            </arguments>
                         </configuration>
                     </plugin>
                 </plugins>

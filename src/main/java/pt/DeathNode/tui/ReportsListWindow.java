@@ -13,6 +13,8 @@ import pt.DeathNode.crypto.KeyManager;
 import pt.DeathNode.crypto.Report;
 import pt.DeathNode.crypto.SecureDocument;
 import pt.DeathNode.util.EndpointConfig;
+import pt.DeathNode.auth.SignedCheckpoint;
+import pt.DeathNode.auth.AuthServerMain;
 
 import javax.crypto.SecretKey;
 import java.io.InputStream;
@@ -235,6 +237,11 @@ public class ReportsListWindow extends BasicWindow {
                 return new FetchResult(null, sanitizeSingleLine(sr3Error));
             }
 
+            String sr4Error = validateSr4AgainstCheckpoints(docs);
+            if (sr4Error != null) {
+                return new FetchResult(null, sanitizeSingleLine(sr4Error));
+            }
+
             List<ReportItem> items = new ArrayList<>();
             for (SecureDocument doc : docs) {
                 if (doc == null || doc.getEncryptedData() == null) {
@@ -285,6 +292,136 @@ public class ReportsListWindow extends BasicWindow {
             return new FetchResult(items, null);
         } catch (Exception e) {
             return new FetchResult(null, sanitizeSingleLine("Error loading reports: " + e.getMessage()));
+        }
+    }
+
+    private String validateSr4AgainstCheckpoints(SecureDocument[] docs) {
+        try {
+            SignedCheckpoint[] cps = fetchCheckpoints();
+            if (cps == null || cps.length == 0) {
+                return null;
+            }
+
+            PublicKey serverPublicKey;
+            try {
+                serverPublicKey = KeyManager.loadPublicKey("server");
+            } catch (Exception e) {
+                return "SR4: missing server public key (keys/server.pub)";
+            }
+
+            Map<String, List<SecureDocument>> bySigner = new HashMap<>();
+            for (SecureDocument d : docs) {
+                if (d == null || d.getSignerId() == null) {
+                    continue;
+                }
+                bySigner.computeIfAbsent(d.getSignerId(), k -> new ArrayList<>()).add(d);
+            }
+
+            for (SignedCheckpoint cp : cps) {
+                if (cp == null || cp.getSignerId() == null) {
+                    continue;
+                }
+
+                if (!AuthServerMain.verifyCheckpoint(cp, serverPublicKey)) {
+                    return "SR4 violation: invalid checkpoint signature for signer '" + cp.getSignerId() + "'";
+                }
+
+                String rollback = detectCheckpointRollback(cp);
+                if (rollback != null) {
+                    return rollback;
+                }
+
+                List<SecureDocument> list = bySigner.get(cp.getSignerId());
+                if (list == null || list.isEmpty()) {
+                    continue;
+                }
+
+                boolean allSeq = true;
+                for (SecureDocument d : list) {
+                    if (d.getSequenceNumber() == null) {
+                        allSeq = false;
+                        break;
+                    }
+                }
+                if (!allSeq) {
+                    continue;
+                }
+
+                list.sort(Comparator.comparingLong(SecureDocument::getSequenceNumber));
+                SecureDocument last = list.get(list.size() - 1);
+                long localLastSeq = last.getSequenceNumber();
+                String localLastHash;
+                try {
+                    localLastHash = CryptoLib.computeChainHash(last);
+                } catch (Exception e) {
+                    continue;
+                }
+
+                if (cp.getLastSequenceNumber() != localLastSeq) {
+                    return "SR4 violation: checkpoint seq mismatch for signer '" + cp.getSignerId() + "'";
+                }
+                if (cp.getLastHash() != null && !cp.getLastHash().equals(localLastHash)) {
+                    return "SR4 violation: checkpoint hash mismatch for signer '" + cp.getSignerId() + "'";
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            return "SR4: failed to validate checkpoints: " + e.getMessage();
+        }
+    }
+
+    private SignedCheckpoint[] fetchCheckpoints() throws Exception {
+        URL url = new URL(EndpointConfig.getGatewayUrl() + "/api/checkpoints");
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setConnectTimeout(1500);
+        conn.setReadTimeout(1500);
+
+        int code = conn.getResponseCode();
+        InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+        if (is == null) {
+            return null;
+        }
+        byte[] bytes = is.readAllBytes();
+        String json = new String(bytes, StandardCharsets.UTF_8);
+        if (json.isBlank()) {
+            return null;
+        }
+        return GSON.fromJson(json, SignedCheckpoint[].class);
+    }
+
+    private String detectCheckpointRollback(SignedCheckpoint cp) {
+        try {
+            Path dir = Paths.get("db", "checkpoints");
+            Files.createDirectories(dir);
+            Path f = dir.resolve(cp.getSignerId() + ".json");
+            SignedCheckpoint prev = null;
+            if (Files.exists(f)) {
+                String prevJson = Files.readString(f, StandardCharsets.UTF_8);
+                if (prevJson != null && !prevJson.isBlank()) {
+                    prev = GSON.fromJson(prevJson, SignedCheckpoint.class);
+                }
+            }
+
+            if (prev != null) {
+                if (cp.getLastSequenceNumber() < prev.getLastSequenceNumber()) {
+                    return "SR4 violation: checkpoint rollback for signer '" + cp.getSignerId() + "'";
+                }
+                if (cp.getLastSequenceNumber() == prev.getLastSequenceNumber()) {
+                    String prevHash = prev.getLastHash();
+                    String curHash = cp.getLastHash();
+                    if (prevHash != null && curHash != null && !prevHash.equals(curHash)) {
+                        return "SR4 violation: checkpoint fork detected for signer '" + cp.getSignerId() + "'";
+                    }
+                }
+            }
+
+            Files.writeString(f, GSON.toJson(cp), StandardCharsets.UTF_8);
+            return null;
+        } catch (Exception e) {
+            return "SR4: failed to persist checkpoint: " + e.getMessage();
         }
     }
 

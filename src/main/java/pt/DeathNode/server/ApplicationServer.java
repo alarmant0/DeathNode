@@ -80,6 +80,7 @@ public class ApplicationServer {
         server.createContext("/api/auth/tokens/validate", new AuthProxyHandler());
 
         server.createContext("/api/reports", new ReportsHandler());
+        server.createContext("/api/checkpoints", new CheckpointsHandler());
         server.createContext("/api/health", new HealthHandler());
 
         server.start();
@@ -339,6 +340,40 @@ public class ApplicationServer {
                 }
             }
             return null;
+        }
+    }
+
+    static class CheckpointsHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(405, -1);
+                return;
+            }
+            try {
+                String query = exchange.getRequestURI().getRawQuery();
+                String path = "/checkpoints" + (query == null || query.isEmpty() ? "" : ("?" + query));
+                URI authUri = URI.create(AUTH_SERVER_URL + path);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(authUri)
+                        .GET()
+                        .build();
+
+                HttpResponse<byte[]> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                exchange.getResponseHeaders().set("Content-Type", response.headers().firstValue("Content-Type").orElse("application/json"));
+                exchange.sendResponseHeaders(response.statusCode(), response.body().length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response.body());
+                }
+            } catch (Exception e) {
+                String error = "{\"error\":\"" + e.getMessage() + "\"}";
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(503, error.getBytes(StandardCharsets.UTF_8).length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(error.getBytes(StandardCharsets.UTF_8));
+                }
+            }
         }
     }
 
