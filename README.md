@@ -1,4 +1,4 @@
-# CXX DeathNode / ChainOfProduct / CivicEcho Project Read Me
+# C27 DeathNode Read Me
 
 *(replace CXX above with group identifier, for example, A07 ou T22)*
 
