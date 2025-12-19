@@ -34,7 +34,7 @@ public class ReportWindow extends BasicWindow {
     private Thread ambientThread;
 
     public ReportWindow(String username, WindowBasedTextGUI textGUI) {
-        super("DEATH NODE :: REPORT");
+        super("DEATH NODE <-> REPORT");
         this.username = username;
         this.textGUI = textGUI;
         initializeUI();

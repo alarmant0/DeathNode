@@ -66,7 +66,7 @@ public class ReportsListWindow extends BasicWindow {
     }
 
     public ReportsListWindow(String currentUser) {
-        super("DEATH NODE :: ARCHIVE / " + currentUser);
+        super("DEATH NODE <-> ARCHIVE / " + currentUser);
         this.currentUser = currentUser;
         initializeUI();
     }

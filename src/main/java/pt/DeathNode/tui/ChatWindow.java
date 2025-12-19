@@ -13,7 +13,7 @@ public class ChatWindow extends BasicWindow {
     private final MessageBox inputBox;
 
     public ChatWindow() {
-        super("DEATH NODE :: COMMS");
+        super("DEATH NODE <-> COMMS");
 
         Panel main = new Panel(new GridLayout(1));
 
