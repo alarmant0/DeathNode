@@ -34,7 +34,7 @@ The following diagram shows the networks and machines:
 
 ### Prerequisites
 
-All the virtual machines are based on: Linux 64-bit, Java 17, Maven, keytool.
+All the virtual machines are based on: Linux 64-bit, Java 17, keytool, Maven.
 
 Download and install a virtual machine. Clone the base machine to create the other machines.
 
