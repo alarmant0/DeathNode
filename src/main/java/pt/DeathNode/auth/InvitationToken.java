@@ -1,9 +1,10 @@
 package pt.DeathNode.auth;
 
 import com.google.gson.Gson;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.UUID;
+import java.util.Base64;
 
 public class InvitationToken {
     private String tokenId;
@@ -20,9 +21,14 @@ public class InvitationToken {
         this.currentUses = 0;
     }
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     public static InvitationToken create(String issuerId, int maxUses, long validityHours, String description) {
         InvitationToken token = new InvitationToken();
-        token.tokenId = UUID.randomUUID().toString();
+
+        byte[] raw = new byte[16];
+        SECURE_RANDOM.nextBytes(raw);
+        token.tokenId = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
         token.issuerId = issuerId;
         token.issuedAt = Instant.now().toString();
         token.expiresAt = Instant.now().plus(validityHours, ChronoUnit.HOURS).toString();
