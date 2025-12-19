@@ -16,6 +16,6 @@ if [[ "${DEATHNODE_CLEAN:-0}" == "1" ]]; then
   rm -rf target
 fi
 
-NODE_PASS="${NODE_PASS:-bob123}" \
+NODE_PASS="bob123" \
 DEATHNODE_GATEWAY_URL="${DEATHNODE_GATEWAY_URL:-https://10.0.2.10:443}" \
 ./setup_scripts/run-vm.sh bob
