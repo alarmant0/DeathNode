@@ -5,9 +5,8 @@
 | Number | Name              | User                             | E-mail                              |
 | -------|-------------------|----------------------------------| ------------------------------------|
 | 117363 | David Pinheiro    | <https://github.com/alarmant0>   | <mailto:david.m.pinheiro@tecnico.ulisboa.pt>   |
-| 22222  | João Marques      | <https://github.com/BobUser>     | <mailto:bob@tecnico.ulisboa.pt>     |
-| 107242 | Mehak Khosa       | <https://github.com/mehakkhosa>  | <mailto:charlie@tecnico.ulisboa.pt> |
-| xxxxx  | Kira              | anonymous                        | anonymous                           |
+| 116509 | João Marques      | <https://github.com/joaorvm>     | <mailto:joaorvmarques@tecnico.ulisboa.pt>     |
+| 107242 | Mehak Khosa       | <https://github.com/mehakkhosa>  | <mailto:mehakpreet.khosa@tecnico.ulisboa.pt> |
 
 ![Alice](img/alice.png) ![Bob](img/bob.png) ![Charlie](img/charlie.png)
 
@@ -35,7 +34,7 @@ The following diagram shows the networks and machines:
 
 ### Prerequisites
 
-All the virtual machines are based on: Linux 64-bit, Java 17, Maven 3.x, keytool.
+All the virtual machines are based on: Linux 64-bit, Java 17, Maven, keytool.
 
 Download and install a virtual machine. Clone the base machine to create the other machines.
 
