@@ -4,14 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-BRANCH="${DEATHNODE_BRANCH:-Security-Challenge-A}"
-
-if [[ "${DEATHNODE_GIT_SYNC:-1}" == "1" ]]; then
-  git fetch --all --prune
-  git checkout "$BRANCH"
-  git pull --ff-only
-fi
-
 if [[ "${DEATHNODE_CLEAN:-0}" == "1" ]]; then
   rm -rf target
 fi
