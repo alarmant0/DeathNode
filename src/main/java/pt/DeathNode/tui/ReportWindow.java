@@ -325,8 +325,11 @@ public class ReportWindow extends BasicWindow {
         });
         viewReports.setRenderer(new SolidFocusButtonRenderer());
 
+        final Button[] inviteBtnRef = new Button[1];
         final Button inviteBtn = new Button("Create Invitation", () -> {
-            inviteBtn.setEnabled(false);
+            if (inviteBtnRef[0] != null) {
+                inviteBtnRef[0].setEnabled(false);
+            }
             new Thread(() -> {
                 String title;
                 String msg;
@@ -357,10 +360,13 @@ public class ReportWindow extends BasicWindow {
                     dialog.setComponent(border);
 
                     textGUI.addWindowAndWait(dialog);
-                    inviteBtn.setEnabled(true);
+                    if (inviteBtnRef[0] != null) {
+                        inviteBtnRef[0].setEnabled(true);
+                    }
                 });
             }, "deathnode-create-invite").start();
         });
+        inviteBtnRef[0] = inviteBtn;
         inviteBtn.setRenderer(new SolidFocusButtonRenderer());
 
         final Button close = new Button("Back", this::close);
