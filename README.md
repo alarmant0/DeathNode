@@ -1,112 +1,132 @@
-# C27 DeathNode Read Me
-
-*(replace CXX above with group identifier, for example, A07 ou T22)*
-
-*(keep only your scenario name and delete the other names)*
+# T27 DeathNode
 
 ## Team
 
 | Number | Name              | User                             | E-mail                              |
 | -------|-------------------|----------------------------------| ------------------------------------|
-| 11111  | Alice Network     | <https://github.com/AliceUser>   | <mailto:alice@tecnico.ulisboa.pt>   |
-| 22222  | Bob Computer      | <https://github.com/BobUser>     | <mailto:bob@tecnico.ulisboa.pt>     |
-| 33333  | Charlie Security  | <https://github.com/CharlieUser> | <mailto:charlie@tecnico.ulisboa.pt> |
-
-*(fill table above with team member information)*  
+| 117363 | David Pinheiro    | <https://github.com/alarmant0>   | <mailto:david.m.pinheiro@tecnico.ulisboa.pt>   |
+| 22222  | João Marques      | <https://github.com/BobUser>     | <mailto:bob@tecnico.ulisboa.pt>     |
+| 107242 | Mehak Khosa       | <https://github.com/mehakkhosa>  | <mailto:charlie@tecnico.ulisboa.pt> |
+| xxxxx  | Kira              | anonymous                        | anonymous                           |
 
 ![Alice](img/alice.png) ![Bob](img/bob.png) ![Charlie](img/charlie.png)
-
-*(add face photos with 150px height; faces should have similar size and framing)*
 
 ## Contents
 
 This repository contains documentation and source code for the *Network and Computer Security (SIRS)* project.
 
-The [REPORT](REPORT.md) document provides a detailed overview of the key technical decisions and various components of the implemented project.
-It offers insights into the rationale behind these choices, the project's architecture, and the impact of these decisions on the overall functionality and performance of the system.
+The [REPORT](REPORT.md) document provides a detailed overview of the key technical decisions and various components of the implemented project. It offers insights into the rationale behind these choices, the project's architecture, and the impact of these decisions on the overall functionality and performance of the system.
 
 This document presents installation and demonstration instructions.
 
-*(adapt all of the following to your project, changing to the specific Linux distributions, programming languages, libraries, etc)*
-
 ## Installation
 
-To see the project in action, it is necessary to setup a virtual environment, with N networks and M machines.  
+To see the project in action, it is necessary to setup a virtual environment, with 2 networks and 5 machines.
 
 The following diagram shows the networks and machines:
 
-*(include a text-based or an image-based diagram)*
+```
+10.0.1.0/24 (Auth net)                10.0.2.0/24 (Client/Gateway net)
+
+  [ Auth 10.0.1.20:443 ]   <------>   [ Gateway 10.0.2.10:443 ]  <------>  [ Alice ]
+                                                                             [ Bob ]
+                                                                             [ Kira ]
+```
 
 ### Prerequisites
 
-All the virtual machines are based on: Linux 64-bit, ...
+All the virtual machines are based on: Linux 64-bit, Java 17, Maven 3.x, keytool.
 
-[Download](https://...link_to_download_installation_media) and [install](https://...link_to_installation_instructions) a virtual machine.  
-Clone the base machine to create the other machines.
-
-*(above, replace witch actual links)*
+Download and install a virtual machine. Clone the base machine to create the other machines.
 
 ### Machine configurations
 
-For each machine, there is an initialization script with the machine name, with prefix `init-` and suffix `.sh`, that installs all the necessary packages and makes all required configurations in the a clean machine.
+For each machine, there is an initialization script with the machine name, with prefix `init-` and suffix `.sh`, that installs all the necessary packages and makes all required configurations in a clean machine.
 
 Inside each machine, use Git to obtain a copy of all the scripts and code.
 
 ```sh
-$ git clone https://github.com/tecnico-sec/cxx...
+git clone https://github.com/tecnico-sec/T27-DeathNode
 ```
-
-*(above, replace with link to actual repository)*
 
 Next we have custom instructions for each machine.
 
-#### Machine 1
+#### Auth Machine
 
-This machine runs ...
-
-*(describe what kind of software runs on this machine, e.g. a database server (PostgreSQL 16.1))*
+This machine runs the Authentication and Invitation Token Service on port 443.
 
 To verify:
 
 ```sh
-$ setup command
+./setup_scripts/ca-generate.sh
+./setup_scripts/run-vm.sh auth
 ```
-
-*(replace with actual commands)*
 
 To test:
 
 ```sh
-$ test command
+curl -k https://10.0.1.20:443/tokens
 ```
 
-*(replace with actual commands)*
+The expected results are a JSON response with available invitation tokens.
 
-The expected results are ...
+If you receive the following message `TLS=false` then ensure the CA certificates exist in `certs/ca/` and the keystore is generated.
 
-*(explain what is supposed to happen if all goes well)*
+#### Gateway Machine
 
-If you receive the following message ... then ...
+This machine runs the main Application Server on port 443 and connects to Auth at `https://10.0.1.20:443`.
 
-*(explain how to fix some known problem)*
+To verify:
 
-#### Machine ...
+```sh
+./setup_scripts/run-vm.sh gateway
+```
 
-*(similar content structure as Machine 1)*
+To test:
+
+```sh
+curl -k https://10.0.2.10:443/health
+```
+
+The expected results are a healthy status response.
+
+If you receive the following message `No plugin found for prefix 'exec'` then the Maven cache is missing; follow the Offline Maven section.
+
+#### Client Machines (Alice, Bob, Kira)
+
+These machines run the terminal UI client and connect to Gateway at `https://10.0.2.10:443`.
+
+To verify:
+
+```sh
+./setup_scripts/run-vm.sh alice
+./setup_scripts/run-vm.sh bob
+./setup_scripts/run-vm.sh kira
+```
+
+To test:
+
+```sh
+NODE_PASS=alice12 ./setup_scripts/run-vm.sh alice
+```
+
+The expected results are the terminal UI launching with TLS connection to Gateway.
+
+If you receive the following message `Keystore password must be at least 6 characters` then set a longer `NODE_PASS`.
 
 ## Demonstration
 
-Now that all the networks and machines are up and running, ...
-
-*(give a tour of the best features of the application; add screenshots when relevant)*
+Now that all the networks and machines are up and running, the system demonstrates invitation-token-based authorization with TLS.
 
 ```sh
-$ demo command
+# Create invitation token
+curl -k -X POST https://10.0.1.20:443/tokens -d '{"description":"Demo token"}'
+
+# Client joins with token (first-time)
+./setup_scripts/run-vm.sh alice  # Enter token when prompted
 ```
 
-*(replace with actual commands)*
-
-*(IMPORTANT: show evidence of the security mechanisms in action; show message payloads, print relevant messages, perform simulated attacks to show the defenses in action, etc.)*
+IMPORTANT: show evidence of the security mechanisms in action; show message payloads, print relevant messages, perform simulated attacks to show the defenses in action, etc.
 
 This concludes the demonstration.
 
@@ -114,19 +134,18 @@ This concludes the demonstration.
 
 ### Links to Used Tools and Libraries
 
-- [Java 11.0.16.1](https://openjdk.java.net/)
+- [Java 17](https://openjdk.java.net/)
 - [Maven 3.9.5](https://maven.apache.org/)
-- ...
+- [Lanterna](https://github.com/mabe02/lanterna)
+- [Gson](https://github.com/google/gson)
+- [SQLite-JDBC](https://github.com/xerial/sqlite-jdbc)
 
 ### Versioning
 
-We use [SemVer](http://semver.org/) for versioning.  
+We use [SemVer](http://semver.org/) for versioning.
 
 ### License
 
 This project is licensed under the MIT License - see the [LICENSE.txt](LICENSE.txt) for details.
 
-*(switch to another license, or no license, as you see fit)*
-
-----
 END OF README
