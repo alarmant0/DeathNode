@@ -1,4 +1,4 @@
-# CXX DeathNode / ChainOfProduct / CivicEcho Project Report
+# T27 DeathNode Project Report
 
 ## 1. Introduction
 
@@ -14,47 +14,267 @@ To prevent these issues, reports are protected using cryptographic mechanisms. E
 
 #### 2.1.1. Design
 
-(_Outline the design of your custom cryptographic library and the rationale behind your design choices, focusing on how it addresses the specific needs of your chosen business scenario._)
+The secure document format provides confidentiality, integrity, and authenticity for crime reports while maintaining user anonymity through pseudonyms.
 
-(_Include a complete example of your data format, with the designed protections._)
+**Cryptographic Algorithms:**
+- **AES-256-GCM**: Encryption with built-in integrity protection
+- **SHA256withRSA**: Digital signatures for authenticity
+- **JSON format**: Structured data representation
+- **Base64 encoding**: Safe binary data transport
+
+**Secure Document Structure:**
+```json
+{
+  "algorithm": "AES-256-GCM",
+  "signature_algorithm": "SHA256withRSA",
+  "iv": "Base64EncodedInitializationVector",
+  "encrypted_data": "Base64EncodedCiphertextWithAuthenticationTag",
+  "signature": "Base64EncodedRSASignature",
+  "signer_id": "alice_pseudonym",
+  "timestamp": "2024-12-20T10:30:00Z",
+  "sequence_number": 42,
+  "previous_hash": "SHA256HashOfPreviousDocument"
+}
+```
+
+**Security Functions:**
+- **Confidentiality**: AES-256-GCM encrypts report content
+- **Integrity**: GCM authentication tag detects modifications
+- **Authenticity**: RSA signatures verify report origin
+- **Chain Integrity**: Sequence numbers and hash chaining prevent tampering
 
 #### 2.1.2. Implementation
 
-(_Detail the implementation process, including the programming language and cryptographic libraries used._)
+**Technology Stack:**
+- **Java 17**: Programming language
+- **Java Cryptography Extension (JCE)**: Cryptographic operations
+- **Gson**: JSON serialization
+- **SQLite**: Local data storage
 
-(_Include challenges faced and how they were overcome._)
+**Core Classes:**
+
+**CryptoLib Class** (`src/main/java/pt/DeathNode/crypto/CryptoLib.java`)
+- `protect(Report, SecretKey, PrivateKey, String)`: Encrypts and signs reports
+- `protect(Report, SecretKey, PrivateKey, String, Long, String)`: Encrypts with sequence/hash
+- `check(SecureDocument, PublicKey)`: Verifies signatures
+- `unprotect(SecureDocument, SecretKey, PublicKey)`: Decrypts reports
+
+**Cryptographic Constants (Verified):**
+- `AES_GCM = "AES/GCM/NoPadding"`
+- `SIGNATURE_ALGORITHM = "SHA256withRSA"`
+- `GCM_IV_LENGTH = 12` bytes
+- `GCM_TAG_LENGTH = 128` bits
+
+**KeyManager Class** (`src/main/java/pt/DeathNode/crypto/KeyManager.java`)
+- `generateSymmetricKey()`: AES-256 key generation (`AES_KEY_SIZE = 256`)
+- `generateKeyPair()`: RSA-2048 key pair generation (`RSA_KEY_SIZE = 2048`)
+- `saveSymmetricKey(SecretKey, String)`: Key persistence to `keys/` directory
+- `loadSymmetricKey(String)`: Key retrieval from `keys/` directory
+
+**SecureDocument Class** (`src/main/java/pt/DeathNode/crypto/SecureDocument.java`)
+- JSON structure with `@SerializedName` annotations
+- Format identifier: `"DeathNode-Secure-v1"`
+- Fields: `algorithm`, `signature_algorithm`, `iv`, `encrypted_data`, `signature`, `signer_id`, `timestamp`, `sequence_number`, `previous_hash`
+- Uses Gson for JSON serialization/deserialization
+
+**Report Class** (`src/main/java/pt/DeathNode/crypto/Report.java`)
+- JSON structure with `@SerializedName` annotations
+- Fields: `report_id`, `timestamp`, `reporter_pseudonym`, `content`, `version`, `status`
+- Uses UUID for report ID generation
+- Contains nested `ReportContent` class for actual report data
+- Matches original project specification format exactly
+
+**ReportContent Class** (`src/main/java/pt/DeathNode/crypto/ReportContent.java`)
+- JSON structure with `@SerializedName` annotations
+- Fields: `suspect`, `description`, `location`
+- Constructor: `ReportContent(String suspect, String description, String location)`
+- Matches project specification example content exactly
+
+**Implementation Issues Resolved:**
+- GCM parameter specification (12-byte IV, 128-bit tag)
+- Base64 encoding for JSON compatibility
+- RSA key size selection (2048 bits)
+- Exception handling for cryptographic operations
 
 ### 2.2. Infrastructure
 
 #### 2.2.1. Network and Machine Setup
 
-(_Provide a brief description of the built infrastructure._)
+**Network Configuration:**
+- **DMZ Network (10.0.1.0/24)**: Authentication Server isolation
+- **Internal Network (10.0.2.0/24)**: Client-Gateway communication
+- **NAT Interface**: Internet access through Gateway
 
-(_Justify the choice of technologies for each server._)
+**Virtual Machine Specifications:**
+
+**Authentication Server (auth)**
+- IP: 10.0.1.20/24 (eth0)
+- Single network interface
+- No internet connectivity
+- Service: HTTPS on port 8080 (default)
+- Database: SQLite (`db/deathnode.db`)
+
+**Gateway/Server API (deathnode-gateway)**
+- eth0: 10.0.1.10/24 (DMZ - Auth access)
+- eth1: 10.0.2.10/24 (Internal - Client access)
+- eth2: DHCP (NAT - Internet)
+- Service: HTTPS on port 9090 (default)
+- Database: SQLite (`db/deathnode.db`)
+
+**Client Nodes**
+- alice: 10.0.2.12/24
+- bob: 10.0.2.11/24
+- kira: 10.0.2.13/24
+- Gateway: 10.0.2.10
+- Terminal UI clients
+
+**Technology Choices:**
+- **VirtualBox**: Virtualization platform
+- **Linux Kali**: Base operating system
+- **iptables**: Network security enforcement
+- **SQLite**: Local database storage
+
+**Network Security Rules:**
+- Client-to-client communication: BLOCKED
+- Client-to-Auth direct access: BLOCKED
+- Gateway-to-Auth: ALLOWED (HTTPS only)
+- Client-to-Gateway: ALLOWED (HTTPS only)
 
 #### 2.2.2. Server Communication Security
 
-(_Discuss how server communications were secured, including the secure channel solutions implemented and any challenges encountered._)
+**TLS Implementation:**
+- **Protocol**: TLS 1.3 with TLS 1.2 fallback
+- **Certificate Format**: PKCS12 keystores
+- **Authentication**: Mutual certificate validation
+- **Cipher Suites**: Strong encryption prioritized
 
-(_Explain what keys exist at the start and how are they distributed?_)
+**Certificate Authority Setup:**
+- **Root CA**: `certs/ca/ca.p12` (self-generated)
+- **Server Certificates**:
+  - Auth Server: `certs/auth/auth.p12`
+  - Gateway: `certs/gateway/gateway.p12`
+  - Alice: `certs/alice/alice.p12`
+  - Bob: `certs/bob/bob.p12`
+  - Kira: `certs/kira/kira.p12`
+
+**Certificate Generation Process:**
+1. CA creation via `setup_scripts/ca-generate.sh`
+2. Individual certificates for each VM
+3. Distribution through shared folders
+4. Installation in `certs/` directories
+
+**TLS Configuration:**
+- **Truststores**: CA certificate in each VM
+- **Environment Variables**:
+  - `DEATHNODE_TLS_KEYSTORE_PATH`
+  - `DEATHNODE_TLS_KEYSTORE_PASSWORD`
+
+**Communication Security:**
+- **Client → Gateway**: TLS with client certificates
+- **Gateway → Auth**: TLS mutual authentication
+- **All Traffic**: End-to-end encryption
+- **Certificate Validation**: Prevents MITM attacks
+
+**Implementation Issues Resolved:**
+- Certificate management across 5 VMs
+- Offline certificate distribution via shared folders
+- TLS handshake consistency across Java versions
+- Certificate trust chain validation
 
 ### 2.3. Security Challenge
 
 #### 2.3.1. Challenge Overview
 
-(_Describe the new requirements introduced in the security challenge and how they impacted your original design._)
+**Security Challenge A Requirements:**
+- Invitation-based network enrollment
+- Centralized authorization server
+- Time-limited access credentials
+- Anonymous participation
+- Secure negotiated sessions
+
+**Architecture Changes:**
+- Added Authentication Server (blind-auth)
+- Modified network topology to star configuration
+- Enhanced TLS certificate management
+- Extended database schema for tokens and users
+
+**Protocol Modifications:**
+- Multi-step enrollment workflow
+- Token validation process
+- Public key exchange during enrollment
+- Gateway authentication against Auth Server
 
 #### 2.3.2. Attacker Model
 
-(_Define who is fully trusted, partially trusted, or untrusted._)
+**Trust Levels:**
+- **Fully Trusted**: Auth Server, CA, infrastructure
+- **Partially Trusted**: Gateway, privileged users (Alice, Bob)
+- **Untrusted**: New users, external networks
 
-(_Define how powerful the attacker is, with capabilities and limitations, i.e., what can he do and what he cannot do_)
+**Attacker Capabilities:**
+- **External Network**: Traffic monitoring, interception attempts
+- **Malicious Client**: Valid certificates, unauthorized access attempts
+- **Token Forger**: Guessing tokens, replay attacks
+- **MITM**: TLS handshake interception
+- **DoS**: Service flooding, resource exhaustion
+
+**Attacker Limitations:**
+- TLS encryption prevents traffic decryption
+- Network isolation blocks direct client access
+- Cryptographic random tokens prevent forgery
+- Certificate validation prevents impersonation
 
 #### 2.3.3. Solution Design and Implementation
 
-(_Explain how your team redesigned and extended the solution to meet the security challenge, including key distribution and other security measures._)
+**Authentication Server Components:**
+- **AuthServerMain Class** (`src/main/java/pt/DeathNode/auth/AuthServerMain.java`): Main server implementation
+- **Token Management Service**: Creates, validates, and manages invitation tokens
+- **User Enrollment Service**: Handles new user registration and credential issuance
+- **SQLite database** (`db/deathnode.db`): Persistent token and user storage
+- **HTTPS API endpoint**: Port 8080 (default) for secure client communication
 
-(_Identify communication entities and the messages they exchange with a UML sequence or collaboration diagram._)  
+**Gateway Server Components:**
+- **ApplicationServer Class** (`src/main/java/pt/DeathNode/server/ApplicationServer.java`): Main server implementation
+- **Client Authentication**: Validates user credentials against Auth Server
+- **Report Mediation**: Forwards reports between clients while maintaining security
+- **SQLite database** (`db/deathnode.db`): Local report storage
+- **HTTPS API endpoint**: Port 9090 (default) for client access
+
+**Invitation Token System:**
+- **InvitationToken Class** (`src/main/java/pt/DeathNode/auth/InvitationToken.java`): Token implementation
+- **Format**: 128-bit cryptographically random (16 bytes, URL-safe Base64 without padding)
+- **Fields**: `tokenId`, `issuerId`, `issuedAt`, `expiresAt`, `maxUses`, `currentUses`, `active`, `description`
+- **Creation**: `create(String issuerId, int maxUses, long validityHours, String description)`
+- **Validation**: Server-side database verification via `isValid()` method
+- **Consumption**: Single-use token marking (increments `currentUses`)
+
+**Key Distribution:**
+- Public key exchange during enrollment
+- Certificate binding to pseudonyms
+- Session key derivation
+- Key rotation mechanisms
+
+**Communication Flow:**
+
+**Enrollment Sequence:**
+1. Alice creates token via Auth Server API
+2. Alice shares token with Kira (out-of-band)
+3. Kira submits join request with token
+4. Auth Server validates token
+5. Public key exchange between Kira and Auth Server
+6. Enrollment completion
+
+**Report Submission:**
+1. Client submits encrypted report to Gateway
+2. Gateway validates user with Auth Server
+3. Gateway stores report locally
+4. Gateway confirms receipt to client
+
+**Security Measures:**
+- Token security (random generation, expiration, limits)
+- Network security (TLS, iptables, certificates)
+- Data protection (AES-256-GCM, RSA signatures, hash chaining)
+- Access control (role-based permissions, invitation enrollment)  
 
 ## 3. Conclusion
 
@@ -71,4 +291,3 @@ Network Security Essentials: Applications and Standards,: William Stallings 2017
 Security Engineering: A Guide to Building Dependable Distributed Systems: Ross Anderson 2020 3rd Edition, ISBN: 978-1-119-64281-7
 
 ----
-END OF REPORT

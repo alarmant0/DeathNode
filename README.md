@@ -120,12 +120,6 @@ sudo ./setup_scripts/run-bob.sh
 sudo ./setup_scripts/run-kira.sh
 ```
 
-To test:
-
-```sh
-sudo ./setup_scripts/run-alice.sh
-```
-
 The expected results are the terminal UI launching with TLS connection to Gateway.
 
 If you receive the following message `Keystore password must be at least 6 characters` then set a longer `NODE_PASS` (inside the run-*.sh script).
