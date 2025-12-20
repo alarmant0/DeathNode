@@ -151,6 +151,7 @@ If you prefer to give VMs temporary internet access for package installation, yo
 
 Now that all the networks and machines are up and running, the system demonstrates invitation-token-based authorization with TLS.
 
+(Use the arrows keys to use the app)
 **Note:** Only Bob and Alice can create tokens (privileged users). Kira must join using a token provided by Bob or Alice.
 
 ![VMs](/img/config/VMS.png)
