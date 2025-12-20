@@ -2,9 +2,11 @@
 
 ## 1. Introduction
 
-(_Provide a brief overview of your project, including the business scenario and the main components: secure documents, infrastructure, and security challenge._)
+DeathNode is an anonymous reporting platform used by a peer-based network run by a group called The Cult of Kika. The system allows members to submit reports about alleged crimes or suspects before this information reaches the authorities. Because the reports can include sensitive information, protecting the identity of users was a major concern from the start. For this reason, users do not use real names and instead interact with the system using pseudonyms.
 
-(_Include a structural diagram, in UML or other standard notation._)
+Each user runs their own node, which stores reports locally in encrypted form. These reports are shared with other nodes through periodic synchronization. Using a peer-to-peer approach makes the system more resilient, but it also creates some problems. Nodes cannot simply trust each other, so they must be able to detect if a report was changed, deleted, duplicated, or received in the wrong order.
+
+To prevent these issues, reports are protected using cryptographic mechanisms. Encryption ensures that only authorized nodes can read the content, and integrity checks allow nodes to detect any changes. Although the system was originally fully decentralized, an extra requirement was later added to control who can join the network. For that reason, a central authorization server was introduced to approve new participants and issue time-limited credentials, while still keeping users anonymous.
 
 ## 2. Project Development
 
@@ -56,17 +58,17 @@
 
 ## 3. Conclusion
 
-(_State the main achievements of your work._)
+In this project, we designed DeathNode, an anonymous peer-based reporting system that allows users to share crime related information without revealing their identity. The main focus was making sure reports could be stored and shared securely between nodes, even though the system does not fully trust its participants.
 
-(_Describe which requirements were satisfied, partially satisfied, or not satisfied; with a brief justification for each one._)
+All the security requirements were met. Reports are encrypted so only authorized nodes can read them, and integrity checks make it possible to detect any changes. During synchronization, nodes can also detect missing, duplicated, or out-of-order reports. Adding a central authorization server helped control who can join the network, while still keeping users anonymous.
 
-(_Identify possible enhancements in the future._)
-
-(_Offer a concluding statement, emphasizing the value of the project experience._)
+There are still some things that could be improved, like handling expired or compromised credentials more smoothly or making synchronization work better on bigger networks. Overall, this project helped us see how anonymity and security can be combined in a distributed system and gave us practical experience dealing with real-world design challenges.
 
 ## 4. Bibliography
 
-(_Present bibliographic references, with clickable links. Always include at least the authors, title, "where published", and year._)
+Segurança em redes informáticas: André Zúquete 2018 5ª edição, FCA. ISBN: 9789727228577
+Network Security Essentials: Applications and Standards,: William Stallings 2017 6th Edition, Pearson. ISBN: 978-0134527338
+Security Engineering: A Guide to Building Dependable Distributed Systems: Ross Anderson 2020 3rd Edition, ISBN: 978-1-119-64281-7
 
 ----
 END OF REPORT
