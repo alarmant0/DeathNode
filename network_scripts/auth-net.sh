@@ -28,3 +28,19 @@ ifup "$IFACE"
 
 ip a show "$IFACE"
 ip route
+
+iptables -F
+iptables -X
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+iptables -A INPUT -i lo -j ACCEPT
+
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+iptables -A INPUT -p tcp -s 10.0.1.10 --dport 443 -m conntrack --ctstate NEW -j ACCEPT
+
+iptables -A INPUT -p icmp -j DROP
+
+iptables-save > /etc/iptables/rules.v4 2>/dev/null || echo "Warning: Could not save iptables rules"
